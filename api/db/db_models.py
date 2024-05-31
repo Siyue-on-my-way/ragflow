@@ -817,3 +817,13 @@ class API4Conversation(DataBaseModel):
 
     class Meta:
         db_table = "api_4_conversation"
+
+
+class DocumentExtra(DataBaseModel):
+    id = CharField(max_length=20, primary_key=True)
+    pubid = CharField(max_length=25, null=False, index=True)
+    title = CharField(max_length=255, index=True)
+    summary = TextField(help_text="文章摘要")
+    
+    class Meta:
+        db_table = "document_extra"
