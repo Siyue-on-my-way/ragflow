@@ -16,7 +16,7 @@ WORKDIR /ragflow
 # ADD ./web ./web
 
 
-
+ADD ./web ./web
 RUN cd /ragflow/web && npm i --force && npm run build
 
 ENV PYTHONPATH=/ragflow/
