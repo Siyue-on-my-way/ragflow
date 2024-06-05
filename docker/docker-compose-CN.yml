@@ -3,7 +3,7 @@ include:
     env_file: ./.env
 
 services:
-   ragflow:
+  ragflow:
     depends_on:
       mysql:
         condition: service_healthy
