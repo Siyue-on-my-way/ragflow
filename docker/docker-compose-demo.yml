@@ -24,10 +24,9 @@ services:
       - ../conf:/ragflow/conf
       - ../deepdoc:/ragflow/deepdoc
       - ../rag:/ragflow/rag
-      - ../docker/entrypoint.sh:/ragflow/entrypoint.sh
       - ../docker/.env:/ragflow/.env
-      - ../web:/ragflow/web
-
+      # - ../web:/ragflow/web
+      # - ../docker/entrypoint.sh:/ragflow/entrypoint.sh
     environment:
       - TZ=${TIMEZONE}
       - HF_ENDPOINT=https://hf-mirror.com
