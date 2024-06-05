@@ -17,7 +17,7 @@ WORKDIR /ragflow
 
 
 
-RUN cd ./web && npm i --force && npm run build
+RUN cd /ragflow/web && npm i --force && npm run build
 
 ENV PYTHONPATH=/ragflow/
 ENV HF_ENDPOINT=https://hf-mirror.com
