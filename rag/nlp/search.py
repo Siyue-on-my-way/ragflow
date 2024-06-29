@@ -399,14 +399,14 @@ class Dealer:
         es_logger.info("【Q】: {}".format(json.dumps(s)))
         res = self.es.search(deepcopy(s), idxnm=idxnm, timeout="600s", src=src)
         es_logger.info("TOTAL: {}".format(self.es.getTotal(res)))
-        if self.es.getTotal(res) == 0 and "knn" in s:
-            bqry, _ = self.qryr.question(qst, min_match="10%")
-            bqry = add_filters(bqry)
-            s["query"] = bqry.to_dict()
-            s["knn"]["filter"] = bqry.to_dict()
-            s["knn"]["similarity"] = 0.17
-            res = self.es.search(s, idxnm=idxnm, timeout="600s", src=src)
-            es_logger.info("【Q】: {}".format(json.dumps(s)))
+        # if self.es.getTotal(res) == 0 and "knn" in s:
+        #     bqry, _ = self.qryr.question(qst, min_match="10%")
+        #     bqry = add_filters(bqry)
+        #     s["query"] = bqry.to_dict()
+        #     s["knn"]["filter"] = bqry.to_dict()
+        #     s["knn"]["similarity"] = 0.17
+        #     res = self.es.search(s, idxnm=idxnm, timeout="600s", src=src)
+        #     es_logger.info("【Q】: {}".format(json.dumps(s)))
 
         kwds = set([])
         for k in keywords:
