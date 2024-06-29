@@ -238,7 +238,7 @@ def create():
 
 
 @manager.route('/retrieval_test', methods=['POST'])
-# @login_required
+@login_required
 @validate_request("kb_id", "question")
 def retrieval_test():
     req = request.json
@@ -263,9 +263,15 @@ def retrieval_test():
             rerank_mdl = TenantLLMService.model_instance(
                 kb.tenant_id, LLMType.RERANK.value, llm_name=req["rerank_id"])
 
-        ranks = retrievaler.retrieval(question, embd_mdl, kb.tenant_id, [kb_id], page, size,
+        if kb_id== '443176ea330511efa2f00242c0a84006':
+            ranks = retrievaler.retrieval(question, embd_mdl, "longtut_test", [kb_id], page, size,
                                       similarity_threshold, vector_similarity_weight, top,
                                       doc_ids, rerank_mdl=rerank_mdl)
+        else:
+            ranks = retrievaler.retrieval(question, embd_mdl, kb.tenant_id, [kb_id], page, size,
+                                      similarity_threshold, vector_similarity_weight, top,
+                                      doc_ids, rerank_mdl=rerank_mdl)
+        
         for c in ranks["chunks"]:
             if "vector" in c:
                 del c["vector"]

@@ -1,22 +1,11 @@
-#
-#  Copyright 2024 The InfiniFlow Authors. All Rights Reserved.
-#
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-#
-
+# -*- coding: utf-8 -*-
 import json
 import re
 from copy import deepcopy
+
+from pathlib import Path
+from openai import OpenAI
+import xml.etree.ElementTree as ET
 
 from elasticsearch_dsl import Q, Search
 from typing import List, Optional, Dict, Union
@@ -27,9 +16,7 @@ from rag.utils import rmSpace
 from rag.nlp import rag_tokenizer, query
 import numpy as np
 
-
 def index_name(uid): return f"ragflow_{uid}"
-
 
 class Dealer:
     def __init__(self, es):
@@ -67,6 +54,269 @@ class Dealer:
     def search(self, req, idxnm, emb_mdl=None):
         qst = req.get("question", "")
         bqry, keywords = self.qryr.question(qst)
+        def add_filters(bqry):
+            nonlocal req
+            if req.get("kb_ids"):
+                bqry.filter.append(Q("terms", kb_id=req["kb_ids"]))
+            if req.get("doc_ids"):
+                bqry.filter.append(Q("terms", doc_id=req["doc_ids"]))
+            if "available_int" in req:
+                if req["available_int"] == 0:
+                    bqry.filter.append(Q("range", available_int={"lt": 1}))
+                else:
+                    bqry.filter.append(
+                        Q("bool", must_not=Q("range", available_int={"lt": 1})))
+            return bqry
+
+        bqry = add_filters(bqry)
+        bqry.boost = 0.05
+
+        s = Search()
+        pg = int(req.get("page", 1)) - 1
+        topk = int(req.get("topk", 1024))
+        ps = int(req.get("size", topk))
+        src = req.get("fields", ["docnm_kwd", "content_ltks", "kb_id", "img_id", "title_tks", "important_kwd",
+                                 "image_id", "doc_id", "q_512_vec", "q_768_vec", "position_int",
+                                 "q_1024_vec", "q_1536_vec", "available_int", "content_with_weight"])
+
+        s = s.query(bqry)[pg * ps:(pg + 1) * ps]
+        s = s.highlight("content_ltks")
+        s = s.highlight("title_ltks")
+        if not qst:
+            if not req.get("sort"):
+                s = s.sort(
+                    {"create_time": {"order": "desc", "unmapped_type": "date"}},
+                    {"create_timestamp_flt": {
+                        "order": "desc", "unmapped_type": "float"}}
+                )
+            else:
+                s = s.sort(
+                    {"page_num_int": {"order": "asc", "unmapped_type": "float",
+                                      "mode": "avg", "numeric_type": "double"}},
+                    {"top_int": {"order": "asc", "unmapped_type": "float",
+                                 "mode": "avg", "numeric_type": "double"}},
+                    {"create_time": {"order": "desc", "unmapped_type": "date"}},
+                    {"create_timestamp_flt": {
+                        "order": "desc", "unmapped_type": "float"}}
+                )
+
+        if qst:
+            s = s.highlight_options(
+                fragment_size=120,
+                number_of_fragments=5,
+                boundary_scanner_locale="zh-CN",
+                boundary_scanner="SENTENCE",
+                boundary_chars=",./;:\\!()，。？：！……（）——、"
+            )
+        s = s.to_dict()
+        q_vec = []
+        if req.get("vector"):
+            assert emb_mdl, "No embedding model selected"
+            s["knn"] = self._vector(
+                qst, emb_mdl, req.get(
+                    "similarity", 0.1), topk)
+            s["knn"]["filter"] = bqry.to_dict()
+            if "highlight" in s:
+                del s["highlight"]
+            q_vec = s["knn"]["query_vector"]
+        es_logger.info("【Q】: {}".format(json.dumps(s)))
+        res = self.es.search(deepcopy(s), idxnm=idxnm, timeout="600s", src=src)
+        es_logger.info("TOTAL: {}".format(self.es.getTotal(res)))
+        if self.es.getTotal(res) == 0 and "knn" in s:
+            bqry, _ = self.qryr.question(qst, min_match="10%")
+            bqry = add_filters(bqry)
+            s["query"] = bqry.to_dict()
+            s["knn"]["filter"] = bqry.to_dict()
+            s["knn"]["similarity"] = 0.17
+            res = self.es.search(s, idxnm=idxnm, timeout="600s", src=src)
+            es_logger.info("【Q】: {}".format(json.dumps(s)))
+
+        kwds = set([])
+        for k in keywords:
+            kwds.add(k)
+            for kk in rag_tokenizer.fine_grained_tokenize(k).split(" "):
+                if len(kk) < 2:
+                    continue
+                if kk in kwds:
+                    continue
+                kwds.add(kk)
+
+        aggs = self.getAggregation(res, "docnm_kwd")
+
+        return self.SearchResult(
+            total=self.es.getTotal(res),
+            ids=self.es.getDocIds(res),
+            query_vector=q_vec,
+            aggregation=aggs,
+            highlight=self.getHighlight(res),
+            field=self.getFields(res, src),
+            keywords=list(kwds)
+        )
+
+    def text_to_sql(self, qst):
+        client = OpenAI(
+            api_key="sk-48cac4f6e9ad4dabbcc0688654e70820",  # 替换成真实DashScope的API_KEY
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",  # 填写DashScope服务endpoint
+        )
+        prompt = prompt = f"""
+                你是一个es搜索的专家。你需要这对以下表的字段结构，根据用户的问题列表，写出最后一个问题的es的对应字段的过滤条件（如patent_id(专利号，如2017108907222，YYYY开通),pub_id(公开(公告)号： 如CN100577011C，CN开头),patent_type(专利类型：发明专利、实用新型、外观设计)，patent_status(案件状态：已下证、未下证)，trading_status(交易状态：待交易/已预定)），
+                日期相关的（pub_date，issue_date，apply_date,price）字段是gt(大于)，lt(小于)；
+                模糊匹配的关键词短句放在keyword里，并且去除调不相关的词语,如一些比较长的，与专利专业内容无关的用途、价值说明等 ；公司或者个人名称相关的放在applicant里。
+                表结构如下：
+                <表结构>TABLE patent_demo_longtut (
+                    patent_id VARCHAR(20) NOT NULL COMMENT '专利号，如2017108907222，YYYY开通',
+                    pub_id VARCHAR(20) NOT NULL COMMENT '公开(公告)号： 如CN100577011C，CN开头',
+                    title VARCHAR(255) NOT NULL COMMENT '专利名称：如一种XX制备方法、加工方法、机器物品等',
+                    summary TEXT COMMENT '摘要：针对专利内容的摘要',
+                    patent_type VARCHAR(50) COMMENT '专利类型：发明专利、实用新型、外观设计',
+                    patent_status VARCHAR(50) COMMENT '案件状态：已下证、未下证',
+                    applicant VARCHAR(255) COMMENT '申请人：公司、学校名称或个人名字',
+                    pub_date DATE COMMENT '发布日：如2021-01-01',
+                    issue_date DATE COMMENT '发证日：如2022-01-01',
+                    apply_date DATE COMMENT '申请日：如2021-01-01',
+                    trading_status VARCHAR(50) COMMENT '交易状态：待交易/已预定',
+                    price int COMMENT '价格：单位元',
+                    manual_specification TEXT COMMENT '说明：如专利权维持，不提供发明人证件这样的说明',
+                    PRIMARY KEY (patent_id) -- 假设专利号作为主键
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='专利信息表';
+                </表结构>
+                要求：1、确保生成的过滤条件是枚举值里的，不能随意添加。比如交易状态只有待交易和已预订两个类型,如果两个类型都有, 则不用添加这个过滤条件。
+                2、如果输入有超过两组要求，则合并成一组或者挑选其中一组来形成输出。
+                3、模糊匹配的关键词短句放在keyword里，并且去除调不相关的词语，如一些比较长的，与专利专业内容无关的用途、价值说明等
+                4、价格相关，一般是超过1千的，如果没加单位，则默认是万为单位
+                下面一些例子
+                输入：
+                <input>
+                已下证 可以交易 2023年发布的 拐杖相关发明专利
+                </input>    
+                输出：
+                <output> <patent_status>已下证</patent_status><trading_status>待交易</trading_status> <pub_date><gt>2023-01-01</gt><lt>2023-12-31</lt></pub_date><keyword> 拐杖</keyword><patent_type>发明专利</patent_type></output>
+
+                输入：
+                <input>
+                教育笔记本（要有一定价值的，有制造需求，明年打算申报高企也想用）
+                </input>
+                <output><keyword>教育 笔记本</keyword></output>
+
+                输入：
+                <input>
+                需要软件相关的专利　下证未下证，发明或实用，都行
+                </input>  
+                <output><keyword>软件</keyword></output>
+                这里下证未下证都行就不加patent_status过滤，发明专利或者实用专利都行就不加patent_type过滤
+                
+                """
+        completion = client.chat.completions.create(
+        model="qwen-max",
+        messages=[
+            {
+                'role': 'system',
+                'content': prompt
+            },
+            {
+                'role': 'user',
+                'content': f"""
+                用户的输入
+                <input>
+                    {qst}
+                </input>
+                请直接给出输出
+                """
+            },
+        ],
+        temperature=0.09,
+        stream=False)
+        text = completion.choices[0].message.content
+        print(text)
+        start_tag = '<output>'
+        end_tag = '</output>'
+        start_pos = text.find(start_tag)
+        end_pos = text.find(end_tag) + len(end_tag)
+        xml_data = text[start_pos:end_pos]
+        try:
+            root = ET.fromstring(xml_data)
+        except Exception as e:
+            print(e)
+            return None,text
+        return root, text
+
+  # 映射列名到处理函数或字段名
+    def search_patent(self, req, idxnm, emb_mdl=None):
+        qst = req.get("question", "")
+        root, text = self.text_to_sql(qst)
+        print(f"{qst} 大模型结果 {text}")
+        qst = ''
+        if root:
+            for column in ['keyword','title','summary']:
+                for item in root.findall(column):
+                    qst+= item.text + ' '
+        bqry, keywords = self.qryr.question(qst)
+
+        def add_filter_by_column(bqry, column, element, mapping):
+          """根据列名和元素值添加过滤条件"""
+          action = mapping.get(column)
+          if action:
+              if callable(action):
+                  action(bqry, element)
+              else:
+                  # field_with_keyword = f"{action}.keyword" if isinstance(element, str) else action
+                  bqry.filter.append(Q("term", **{action: element}))
+                  
+        def add_text_match_filter(bqry, column, element):
+            print(bqry)
+            """根据列名和元素值添加模糊文本匹配过滤条件"""
+            # 构造带有模糊匹配的Match查询
+            text_match = Q("match", **{
+                column: {
+                    "query": element.text,
+                    "fuzziness": "AUTO"
+                }
+            })
+            
+            # 检查bqry是否有should属性
+            if hasattr(bqry, 'should'):
+                # 如果有should属性，则直接添加should_clause
+                bqry.should.append(text_match)
+            else:
+                # 如果没有should属性，创建一个新的should列表并添加should_clause
+                bqry = Q("bool", must=bqry.must, should=[text_match])
+            
+            return bqry
+
+        def handle_range_condition(bqry, column, element):
+            """处理日期或价格的范围条件"""
+            res = {}
+            for child in element:
+                if child.tag in ('lt', 'gt'):
+                    res[child.tag] = child.text
+            if res:
+                bqry.filter.append(Q("range", **{column: res}))
+
+        def add_text_to_sql(bqry, root):
+            column_actions = {
+              'patent_id': 'patent_id',
+              'pub_id': 'pub_id',
+              'applicant': add_text_match_filter,
+              'manual_specification': 'manual_specification',
+              'patent_type': 'patent_type',
+              'patent_status': 'patent_status',
+              'trading_status': 'trading_status',
+              'pub_date': handle_range_condition,
+              'issue_date': handle_range_condition,
+              'apply_date': handle_range_condition,
+              'price': handle_range_condition
+            }
+            for column in column_actions.keys():
+              elements = root.findall(column)
+              for element in elements:
+                  action = column_actions[column]
+                  if isinstance(action, str):  # 直接添加term过滤
+                      add_filter_by_column(bqry, column, element.text, column_actions)
+                  else:  # 调用处理函数
+                      action(bqry, column,  element)
+        if root:
+            add_text_to_sql(bqry, root)
+
         def add_filters(bqry):
             nonlocal req
             if req.get("kb_ids"):
@@ -361,7 +611,11 @@ class Dealer:
                "question": question, "vector": True, "topk": top,
                "similarity": similarity_threshold,
                "available_int": 1}
-        sres = self.search(req, index_name(tenant_id), embd_mdl)
+        
+        if tenant_id == 'longtut_test':
+            sres = self.search_patent(req, tenant_id, embd_mdl)
+        else:
+          sres = self.search(req, index_name(tenant_id), embd_mdl)
 
         if rerank_mdl:
             sim, tsim, vsim = self.rerank_by_model(rerank_mdl,
