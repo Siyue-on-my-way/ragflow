@@ -119,7 +119,7 @@ def chat(dialog, messages, stream=True, **kwargs):
         if dialog.rerank_id:
             rerank_mdl = LLMBundle(dialog.tenant_id, LLMType.RERANK, dialog.rerank_id)
 
-        if '443176ea330511efa2f00242c0a84006' in dialog.kb_ids:
+        if '443176ea330511efa2f00242c0a84006' in list(dialog.kb_ids):
             kbinfos = retrievaler.retrieval(" ".join(questions), embd_mdl, dialog.tenant_id, ['443176ea330511efa2f00242c0a84006'], 1, dialog.top_n,
                                         dialog.similarity_threshold,
                                         dialog.vector_similarity_weight,
