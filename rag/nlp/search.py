@@ -227,7 +227,7 @@ class Dealer:
         temperature=0.09,
         stream=False)
         text = completion.choices[0].message.content
-        logging.info(text)
+        es_logger.info(text)
         start_tag = '<output>'
         end_tag = '</output>'
         start_pos = text.find(start_tag)
@@ -236,7 +236,7 @@ class Dealer:
         try:
             root = ET.fromstring(xml_data)
         except Exception as e:
-            logging.info(e)
+            es_logger.info(e)
             return None,text
         return root, text
 
@@ -244,7 +244,7 @@ class Dealer:
     def search_patent(self, req, idxnm, emb_mdl=None):
         qst = req.get("question", "")
         root, text = self.text_to_sql(qst)
-        logging.info(f"{qst} 大模型结果 {text}")
+        es_logger.info(f"{qst} 大模型结果 {text}")
         qst = ''
         if root:
             for column in ['keyword','title','summary']:
@@ -263,7 +263,7 @@ class Dealer:
                   bqry.filter.append(Q("term", **{action: element}))
                   
         def add_text_match_filter(bqry, column, element):
-            logging.info(bqry)
+            es_logger.info(bqry)
             """根据列名和元素值添加模糊文本匹配过滤条件"""
             # 构造带有模糊匹配的Match查询
             text_match = Q("match", **{
