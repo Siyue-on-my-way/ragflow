@@ -158,7 +158,7 @@ class Dealer:
             api_key="sk-48cac4f6e9ad4dabbcc0688654e70820",  # 替换成真实DashScope的API_KEY
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",  # 填写DashScope服务endpoint
         )
-        prompt = prompt = f"""
+        prompt = f"""
                 你是一个es搜索的专家。你需要这对以下表的字段结构，根据用户的问题列表，写出最后一个问题的es的对应字段的过滤条件（如patent_id(专利号，如2017108907222，YYYY开通),pub_id(公开(公告)号： 如CN100577011C，CN开头),patent_type(专利类型：发明专利、实用新型、外观设计)，patent_status(案件状态：已下证、未下证)，trading_status(交易状态：待交易/已预定)），
                 日期相关的（pub_date，issue_date，apply_date,price）字段是gt(大于)，lt(小于)；
                 模糊匹配的关键词短句放在keyword里，并且去除调不相关的词语,如一些比较长的，与专利专业内容无关的用途、价值说明等 ；公司或者个人名称相关的放在applicant里。
@@ -200,11 +200,25 @@ class Dealer:
 
                 输入：
                 <input>
-                需要软件相关的专利　下证未下证，发明或实用，都行
+                需要软件相关的专利 下证未下证，发明或实用，都行
                 </input>  
                 <output><keyword>软件</keyword></output>
                 这里下证未下证都行就不加patent_status过滤，发明专利或者实用专利都行就不加patent_type过滤
-                
+
+                输入
+                <input>
+                求购电池热管理相关专利，发明专利或实用专利都行，不要未下证的，价格在2w以下均可接受 大模型结果
+                </input>  
+                <output><keyword>电池 热管理</keyword><patent_status>已下证</patent_status><price><lte>20000</lte></price></output>
+                这里 发明专利或者实用专利都行就不加patent_type过滤
+    
+                输入：
+                <input>
+                    需要软件相关的专利 为下证
+                </input>  
+                <output><keyword>软件</keyword><patent_status>未下证</patent_status></output>
+                这里未下证变成了错别字“为下证”，要纠正为 未下证 过滤
+            
                 """
         completion = client.chat.completions.create(
         model="qwen-max",
@@ -615,7 +629,7 @@ class Dealer:
         if tenant_id == 'longtut_test':
             sres = self.search_patent(req, tenant_id, embd_mdl)
         else:
-          sres = self.search(req, index_name(tenant_id), embd_mdl)
+            sres = self.search(req, index_name(tenant_id), embd_mdl)
 
         if rerank_mdl:
             sim, tsim, vsim = self.rerank_by_model(rerank_mdl,

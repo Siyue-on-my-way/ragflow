@@ -238,7 +238,7 @@ def create():
 
 
 @manager.route('/retrieval_test', methods=['POST'])
-@login_required
+#@login_required
 @validate_request("kb_id", "question")
 def retrieval_test():
     req = request.json
