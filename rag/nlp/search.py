@@ -218,6 +218,13 @@ class Dealer:
                 </input>  
                 <output><keyword>软件</keyword><patent_status>未下证</patent_status></output>
                 这里未下证变成了错别字“为下证”，要纠正为 未下证 过滤
+
+                输入：
+                <input>
+                请提供专利号是2018103108800的相关信息，包括是否已经下证、价格、专利类型
+                </input>
+                <output><patent_id>2018103108800</patent_id></output>
+                这里是问某篇patent_id专利的相关信息，则这些询问的相关信息如patent_type、price和patent_status就不能加入到过滤条件里
             
                 """
         completion = client.chat.completions.create(
