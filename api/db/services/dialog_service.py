@@ -118,11 +118,20 @@ def chat(dialog, messages, stream=True, **kwargs):
         rerank_mdl = None
         if dialog.rerank_id:
             rerank_mdl = LLMBundle(dialog.tenant_id, LLMType.RERANK, dialog.rerank_id)
-        kbinfos = retrievaler.retrieval(" ".join(questions), embd_mdl, dialog.tenant_id, dialog.kb_ids, 1, dialog.top_n,
+
+        if '443176ea330511efa2f00242c0a84006' in dialog.kb_ids:
+            kbinfos = retrievaler.retrieval(" ".join(questions), embd_mdl, dialog.tenant_id, ['443176ea330511efa2f00242c0a84006'], 1, dialog.top_n,
                                         dialog.similarity_threshold,
                                         dialog.vector_similarity_weight,
                                         doc_ids=kwargs["doc_ids"].split(",") if "doc_ids" in kwargs else None,
                                         top=1024, aggs=False, rerank_mdl=rerank_mdl)
+        else:
+            kbinfos = retrievaler.retrieval(" ".join(questions), embd_mdl, dialog.tenant_id, dialog.kb_ids, 1, dialog.top_n,
+                                        dialog.similarity_threshold,
+                                        dialog.vector_similarity_weight,
+                                        doc_ids=kwargs["doc_ids"].split(",") if "doc_ids" in kwargs else None,
+                                        top=1024, aggs=False, rerank_mdl=rerank_mdl)
+            
     knowledges = [ck["content_with_weight"] for ck in kbinfos["chunks"]]
     chat_logger.info(
         "{}->{}".format(" ".join(questions), "\n->".join(knowledges)))
