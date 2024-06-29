@@ -25,7 +25,7 @@ from api.settings import chat_logger, retrievaler
 from rag.app.resume import forbidden_select_fields4resume
 from rag.nlp.search import index_name
 from rag.utils import rmSpace, num_tokens_from_string, encoder
-
+import logging
 
 class DialogService(CommonService):
     model = Dialog
@@ -118,7 +118,8 @@ def chat(dialog, messages, stream=True, **kwargs):
         rerank_mdl = None
         if dialog.rerank_id:
             rerank_mdl = LLMBundle(dialog.tenant_id, LLMType.RERANK, dialog.rerank_id)
-
+        logging.info(dialog.kb_ids)
+        logging.info('443176ea330511efa2f00242c0a84006' in list(dialog.kb_ids))
         if '443176ea330511efa2f00242c0a84006' in list(dialog.kb_ids):
             kbinfos = retrievaler.retrieval(" ".join(questions), embd_mdl, dialog.tenant_id, ['443176ea330511efa2f00242c0a84006'], 1, dialog.top_n,
                                         dialog.similarity_threshold,

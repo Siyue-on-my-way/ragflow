@@ -287,7 +287,7 @@ class Dealer:
             """处理日期或价格的范围条件"""
             res = {}
             for child in element:
-                if child.tag in ('lt', 'gt'):
+                if child.tag in ('lt', 'gt','lte','gte'):
                     res[child.tag] = child.text
             if res:
                 bqry.filter.append(Q("range", **{column: res}))
