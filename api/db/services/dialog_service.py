@@ -118,10 +118,10 @@ def chat(dialog, messages, stream=True, **kwargs):
         rerank_mdl = None
         if dialog.rerank_id:
             rerank_mdl = LLMBundle(dialog.tenant_id, LLMType.RERANK, dialog.rerank_id)
-        logging.info(dialog.kb_ids)
-        logging.info('443176ea330511efa2f00242c0a84006' in list(dialog.kb_ids))
+        chat_logger.info(dialog.kb_ids)
+        chat_logger.info('443176ea330511efa2f00242c0a84006' in list(dialog.kb_ids))
         if '443176ea330511efa2f00242c0a84006' in list(dialog.kb_ids):
-            kbinfos = retrievaler.retrieval(" ".join(questions), embd_mdl, dialog.tenant_id, ['443176ea330511efa2f00242c0a84006'], 1, dialog.top_n,
+            kbinfos = retrievaler.retrieval(" ".join(questions), embd_mdl, "longtut_test", dialog.kb_ids, 1, dialog.top_n,
                                         dialog.similarity_threshold,
                                         dialog.vector_similarity_weight,
                                         doc_ids=kwargs["doc_ids"].split(",") if "doc_ids" in kwargs else None,
