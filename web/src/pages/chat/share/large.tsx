@@ -1,4 +1,5 @@
-import { ReactComponent as AssistantIcon } from '@/assets/svg/assistant.svg';
+import { ReactComponent as AssistantIcon } from '@/assets/svg/robot.svg';
+// import { ReactComponent as AssistantIcon } from '@/assets/svg/assistant.svg';
 import { MessageType } from '@/constants/chat';
 import { useTranslate } from '@/hooks/commonHooks';
 import { IReference, Message } from '@/interfaces/database/chat';
@@ -83,7 +84,7 @@ const MessageItem = ({
                 content={content}
               ></MarkdownContent>
             </div>
-            {isAssistant && referenceDocumentList.length > 0 && (
+            {/* {isAssistant && referenceDocumentList.length > 0 && (
               <List
                 bordered
                 dataSource={referenceDocumentList}
@@ -116,7 +117,7 @@ const MessageItem = ({
                   );
                 }}
               />
-            )}
+            )} */}
           </Flex>
         </div>
       </section>
