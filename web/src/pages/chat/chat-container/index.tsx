@@ -1,4 +1,5 @@
-import { ReactComponent as AssistantIcon } from '@/assets/svg/assistant.svg';
+import { ReactComponent as AssistantIcon } from '@/assets/svg/robot.svg';
+// import { ReactComponent as AssistantIcon } from '@/assets/svg/assistant.svg';
 import NewDocumentLink from '@/components/new-document-link';
 import DocumentPreviewer from '@/components/pdf-previewer';
 import { MessageType } from '@/constants/chat';
@@ -83,7 +84,7 @@ const MessageItem = ({
               }
             />
           ) : (
-            <AssistantIcon></AssistantIcon>
+            <AssistantIcon style={{width:'42px'}}></AssistantIcon>
           )}
           <Flex vertical gap={8} flex={1}>
             <b>{isAssistant ? '' : userInfo.nickname}</b>
@@ -94,7 +95,7 @@ const MessageItem = ({
                 clickDocumentButton={clickDocumentButton}
               ></MarkdownContent>
             </div>
-            {isAssistant && referenceDocumentList.length > 0 && (
+            {/* {isAssistant && referenceDocumentList.length > 0 && (
               <List
                 bordered
                 dataSource={referenceDocumentList}
@@ -127,7 +128,7 @@ const MessageItem = ({
                   );
                 }}
               />
-            )}
+            )} */}
           </Flex>
         </div>
       </section>

@@ -13,7 +13,8 @@ export default defineConfig({
   esbuildMinifyIIFE: true,
   icons: {},
   hash: true,
-  favicons: ['/logo.svg'],
+  // favicons: ['/logo.svg'],
+  favicons:['/logo-embeded-chat-header1.png'],
   clickToComponent: {},
   history: {
     type: 'browser',
@@ -30,7 +31,7 @@ export default defineConfig({
   copy: ['src/conf.json'],
   proxy: {
     '/v1': {
-      target: '',
+      target: 'http://118.178.241.227/',
       changeOrigin: true,
       ws: true,
       logger: console,
