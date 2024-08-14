@@ -54,10 +54,7 @@ class Dealer:
 
     def search(self, req, idxnm, emb_mdl=None):
         qst = req.get("question", "")
-        tokens = list(jieba.cut_for_search(qst))
-        qst = " ".join(list(tokens))
-        logging.error(f"qst:   {qst}")
-        print(f"qst:   {qst}")
+
         bqry, keywords = self.qryr.question(qst)
         def add_filters(bqry):
             nonlocal req
@@ -631,6 +628,10 @@ class Dealer:
     def retrieval(self, question, embd_mdl, tenant_id, kb_ids, page, page_size, similarity_threshold=0.2,
                   vector_similarity_weight=0.3, top=1024, doc_ids=None, aggs=True, rerank_mdl=None):
         ranks = {"total": 0, "chunks": [], "doc_aggs": {}}
+        tokens = list(jieba.cut_for_search(question))
+        question = " ".join(list(tokens))
+        print(f"question: {question}")
+        logging.error(f"question: {question}")
         if not question:
             return ranks
         req = {"kb_ids": kb_ids, "doc_ids": doc_ids, "size": page_size,
