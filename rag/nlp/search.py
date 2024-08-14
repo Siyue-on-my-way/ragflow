@@ -2,6 +2,7 @@
 import json
 import re
 from copy import deepcopy
+import jieba
 
 from pathlib import Path
 from openai import OpenAI
@@ -53,6 +54,8 @@ class Dealer:
 
     def search(self, req, idxnm, emb_mdl=None):
         qst = req.get("question", "")
+        tokens = list(jieba.cut_for_search(qst))
+        qst = " ".join(list(tokens))
         bqry, keywords = self.qryr.question(qst)
         def add_filters(bqry):
             nonlocal req
