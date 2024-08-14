@@ -25,7 +25,7 @@ ENV HF_ENDPOINT=https://hf-mirror.com
 
 COPY requirements.txt /requirements.txt
 RUN pip install --upgrade pip -i https://mirrors.aliyun.com/pypi/simple/
-RUN pip install --prefix=/usr/local -r /app/api/requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install --prefix=/usr/local -r /requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
 ADD docker/entrypoint.sh ./entrypoint.sh
 
