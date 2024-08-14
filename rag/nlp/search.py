@@ -56,6 +56,8 @@ class Dealer:
         qst = req.get("question", "")
         tokens = list(jieba.cut_for_search(qst))
         qst = " ".join(list(tokens))
+        logging.error(f"qst:   {qst}")
+        print(f"qst:   {qst}")
         bqry, keywords = self.qryr.question(qst)
         def add_filters(bqry):
             nonlocal req
