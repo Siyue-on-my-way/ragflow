@@ -87,7 +87,7 @@ def chat(dialog, messages, stream=True, **kwargs):
         yield {"answer": "**ERROR**: Knowledge bases use different embedding models.", "reference": []}
         return {"answer": "**ERROR**: Knowledge bases use different embedding models.", "reference": []}
 
-    questions = [m["content"] for m in messages if m["role"] == "user"]
+    questions = [m["content"] for m in messages if m["role"] == "user"][-3:]
     embd_mdl = LLMBundle(dialog.tenant_id, LLMType.EMBEDDING, embd_nms[0])
     chat_mdl = LLMBundle(dialog.tenant_id, LLMType.CHAT, dialog.llm_id)
 
@@ -110,7 +110,7 @@ def chat(dialog, messages, stream=True, **kwargs):
             prompt_config["system"] = prompt_config["system"].replace(
                 "{%s}" % p["key"], " ")
 
-    for _ in range(len(questions) // 2):
+    for _ in range((len(questions) // 2)+1):
         questions.append(questions[-1])
     if "knowledge" not in [p["key"] for p in prompt_config["parameters"]]:
         kbinfos = {"total": 0, "chunks": [], "doc_aggs": []}
