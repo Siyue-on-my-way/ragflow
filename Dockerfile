@@ -14,11 +14,14 @@ WORKDIR /ragflow
 # ADD docker/entrypoint.sh ./entrypoint.sh
 # ADD docker/.env ./
 # ADD ./web ./web
+ADD ./agent ./agent
+ADD ./graphrag ./graphrag
 
 
 #### 由此可见， build的时候挂载是不生效的，只能拉真实存在的数据， docker-composer的挂载仅对启动服务时生效
 ADD ./web ./web
 RUN cd /ragflow/web && npm i --force && npm run build
+
 
 ENV PYTHONPATH=/ragflow/
 ENV HF_ENDPOINT=https://hf-mirror.com

@@ -25,7 +25,7 @@ from flask_cors import CORS
 from api.db import StatusEnum
 from api.db.db_models import close_connection
 from api.db.services import UserService
-from api.utils import CustomJSONEncoder
+from api.utils import CustomJSONEncoder, commands
 
 from flask_session import Session
 from flask_login import LoginManager
@@ -60,15 +60,21 @@ Session(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 
+commands.register_commands(app)
 
 
 def search_pages_path(pages_dir):
-    return [path for path in pages_dir.glob('*_app.py') if not path.name.startswith('.')]
+    app_path_list = [path for path in pages_dir.glob('*_app.py') if not path.name.startswith('.')]
+    api_path_list = [path for path in pages_dir.glob('*sdk/*.py') if not path.name.startswith('.')]
+    app_path_list.extend(api_path_list)
+    return app_path_list
 
 
 def register_page(page_path):
+    path = f'{page_path}'
+
     page_name = page_path.stem.rstrip('_app')
-    module_name = '.'.join(page_path.parts[page_path.parts.index('api'):-1] + (page_name, ))
+    module_name = '.'.join(page_path.parts[page_path.parts.index('api'):-1] + (page_name,))
 
     spec = spec_from_file_location(module_name, page_path)
     page = module_from_spec(spec)
@@ -76,9 +82,8 @@ def register_page(page_path):
     page.manager = Blueprint(page_name, module_name)
     sys.modules[module_name] = page
     spec.loader.exec_module(page)
-
     page_name = getattr(page, 'page_name', page_name)
-    url_prefix = f'/{API_VERSION}/{page_name}'
+    url_prefix = f'/api/{API_VERSION}/{page_name}' if "/sdk/" in path else f'/{API_VERSION}/{page_name}'
 
     app.register_blueprint(page.manager, url_prefix=url_prefix)
     return url_prefix
@@ -87,6 +92,7 @@ def register_page(page_path):
 pages_dir = [
     Path(__file__).parent,
     Path(__file__).parent.parent / 'api' / 'apps',
+    Path(__file__).parent.parent / 'api' / 'apps' / 'sdk',
 ]
 
 client_urls_prefix = [

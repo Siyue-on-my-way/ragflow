@@ -1,7 +1,6 @@
-import {
-  useFetchTenantInfo,
-  useSelectParserList,
-} from '@/hooks/userSettingHook';
+import { useHandleChunkMethodSelectChange } from '@/hooks/logic-hooks';
+import { useSelectParserList } from '@/hooks/user-setting-hooks';
+import { FormInstance } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 
 const ParserListMap = new Map([
@@ -16,23 +15,61 @@ const ParserListMap = new Map([
       'laws',
       'presentation',
       'one',
+      'qa',
+      'knowledge_graph',
     ],
   ],
   [
     ['doc', 'docx'],
-    ['naive', 'resume', 'book', 'laws', 'one'],
+    [
+      'naive',
+      'resume',
+      'book',
+      'laws',
+      'one',
+      'qa',
+      'manual',
+      'knowledge_graph',
+    ],
   ],
   [
     ['xlsx', 'xls'],
-    ['naive', 'qa', 'table', 'one'],
+    ['naive', 'qa', 'table', 'one', 'knowledge_graph'],
   ],
   [['ppt', 'pptx'], ['presentation']],
   [
     ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tif', 'tiff', 'webp', 'svg', 'ico'],
     ['picture'],
   ],
-  [['txt'], ['naive', 'resume', 'book', 'laws', 'one', 'qa', 'table']],
-  [['csv'], ['naive', 'resume', 'book', 'laws', 'one', 'qa', 'table']],
+  [
+    ['txt'],
+    [
+      'naive',
+      'resume',
+      'book',
+      'laws',
+      'one',
+      'qa',
+      'table',
+      'knowledge_graph',
+    ],
+  ],
+  [
+    ['csv'],
+    [
+      'naive',
+      'resume',
+      'book',
+      'laws',
+      'one',
+      'qa',
+      'table',
+      'knowledge_graph',
+    ],
+  ],
+  [['md'], ['naive', 'qa', 'knowledge_graph']],
+  [['json'], ['naive', 'knowledge_graph']],
+  [['eml'], ['email']],
 ]);
 
 const getParserList = (
@@ -49,9 +86,11 @@ export const useFetchParserListOnMount = (
   documentId: string,
   parserId: string,
   documentExtension: string,
+  form: FormInstance,
 ) => {
   const [selectedTag, setSelectedTag] = useState('');
   const parserList = useSelectParserList();
+  const handleChunkMethodSelectChange = useHandleChunkMethodSelectChange(form);
 
   const nextParserList = useMemo(() => {
     const key = [...ParserListMap.keys()].find((x) =>
@@ -68,14 +107,12 @@ export const useFetchParserListOnMount = (
     );
   }, [parserList, documentExtension]);
 
-  useFetchTenantInfo();
-
   useEffect(() => {
     setSelectedTag(parserId);
   }, [parserId, documentId]);
 
   const handleChange = (tag: string) => {
-    // const nextSelectedTag = checked ? tag : selectedTag;
+    handleChunkMethodSelectChange(tag);
     setSelectedTag(tag);
   };
 

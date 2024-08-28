@@ -1,18 +1,13 @@
-import { useFetchKnowledgeList } from '@/hooks/knowledgeHook';
 import { PlusOutlined } from '@ant-design/icons';
 import { Form, Input, Select, Switch, Upload } from 'antd';
 import classNames from 'classnames';
 import { ISegmentedContentProps } from '../interface';
 
-import { useTranslate } from '@/hooks/commonHooks';
+import KnowledgeBaseItem from '@/components/knowledge-base-item';
+import { useTranslate } from '@/hooks/common-hooks';
 import styles from './index.less';
 
 const AssistantSetting = ({ show }: ISegmentedContentProps) => {
-  const { list: knowledgeList } = useFetchKnowledgeList(true);
-  const knowledgeOptions = knowledgeList.map((x) => ({
-    label: x.name,
-    value: x.id,
-  }));
   const { t } = useTranslate('chat');
 
   const normFile = (e: any) => {
@@ -96,23 +91,15 @@ const AssistantSetting = ({ show }: ISegmentedContentProps) => {
         <Switch />
       </Form.Item>
       <Form.Item
-        label={t('knowledgeBases')}
-        name="kb_ids"
-        tooltip={t('knowledgeBasesTip')}
-        rules={[
-          {
-            required: true,
-            message: t('knowledgeBasesMessage'),
-            type: 'array',
-          },
-        ]}
+        label={t('selfRag')}
+        valuePropName="checked"
+        name={['prompt_config', 'self_rag']}
+        tooltip={t('selfRagTip')}
+        initialValue={false}
       >
-        <Select
-          mode="multiple"
-          options={knowledgeOptions}
-          placeholder={t('knowledgeBasesMessage')}
-        ></Select>
+        <Switch />
       </Form.Item>
+      <KnowledgeBaseItem></KnowledgeBaseItem>
     </section>
   );
 };

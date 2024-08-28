@@ -30,7 +30,7 @@ try:
 except Exception as e:
     REDIS = {}
     pass
-DOC_MAXIMUM_SIZE = 128 * 1024 * 1024
+DOC_MAXIMUM_SIZE = int(os.environ.get("MAX_CONTENT_LENGTH", 128 * 1024 * 1024))
 
 # Logger
 LoggerFactory.set_directory(
@@ -39,7 +39,7 @@ LoggerFactory.set_directory(
         "logs",
         "rag"))
 # {CRITICAL: 50, FATAL:50, ERROR:40, WARNING:30, WARN:30, INFO:20, DEBUG:10, NOTSET:0}
-LoggerFactory.LEVEL = 10
+LoggerFactory.LEVEL = 30
 
 es_logger = getLogger("es")
 minio_logger = getLogger("minio")

@@ -52,25 +52,26 @@ class Dealer:
             "query_vector": [float(v) for v in qv]
         }
 
+    def _add_filters(self, bqry, req):
+        if req.get("kb_ids"):
+            bqry.filter.append(Q("terms", kb_id=req["kb_ids"]))
+        if req.get("doc_ids"):
+            bqry.filter.append(Q("terms", doc_id=req["doc_ids"]))
+        if req.get("knowledge_graph_kwd"):
+            bqry.filter.append(Q("terms", knowledge_graph_kwd=req["knowledge_graph_kwd"]))
+        if "available_int" in req:
+            if req["available_int"] == 0:
+                bqry.filter.append(Q("range", available_int={"lt": 1}))
+            else:
+                bqry.filter.append(
+                    Q("bool", must_not=Q("range", available_int={"lt": 1})))
+        return bqry
+
     def search(self, req, idxnm, emb_mdl=None):
         qst = req.get("question", "")
 
         bqry, keywords = self.qryr.question(qst)
-        def add_filters(bqry):
-            nonlocal req
-            if req.get("kb_ids"):
-                bqry.filter.append(Q("terms", kb_id=req["kb_ids"]))
-            if req.get("doc_ids"):
-                bqry.filter.append(Q("terms", doc_id=req["doc_ids"]))
-            if "available_int" in req:
-                if req["available_int"] == 0:
-                    bqry.filter.append(Q("range", available_int={"lt": 1}))
-                else:
-                    bqry.filter.append(
-                        Q("bool", must_not=Q("range", available_int={"lt": 1})))
-            return bqry
-
-        bqry = add_filters(bqry)
+        bqry = self._add_filters(bqry, req)
         bqry.boost = 0.05
 
         s = Search()
@@ -78,7 +79,7 @@ class Dealer:
         topk = int(req.get("topk", 1024))
         ps = int(req.get("size", topk))
         src = req.get("fields", ["docnm_kwd", "content_ltks", "kb_id", "img_id", "title_tks", "important_kwd",
-                                 "image_id", "doc_id", "q_512_vec", "q_768_vec", "position_int",
+                                 "image_id", "doc_id", "q_512_vec", "q_768_vec", "position_int", "knowledge_graph_kwd",
                                  "q_1024_vec", "q_1536_vec", "available_int", "content_with_weight"])
 
         s = s.query(bqry)[pg * ps:(pg + 1) * ps]
@@ -87,7 +88,7 @@ class Dealer:
         if not qst:
             if not req.get("sort"):
                 s = s.sort(
-                    {"create_time": {"order": "desc", "unmapped_type": "date"}},
+                    #{"create_time": {"order": "desc", "unmapped_type": "date"}},
                     {"create_timestamp_flt": {
                         "order": "desc", "unmapped_type": "float"}}
                 )
@@ -97,7 +98,7 @@ class Dealer:
                                       "mode": "avg", "numeric_type": "double"}},
                     {"top_int": {"order": "asc", "unmapped_type": "float",
                                  "mode": "avg", "numeric_type": "double"}},
-                    {"create_time": {"order": "desc", "unmapped_type": "date"}},
+                    #{"create_time": {"order": "desc", "unmapped_type": "date"}},
                     {"create_timestamp_flt": {
                         "order": "desc", "unmapped_type": "float"}}
                 )
@@ -126,7 +127,9 @@ class Dealer:
         es_logger.info("TOTAL: {}".format(self.es.getTotal(res)))
         if self.es.getTotal(res) == 0 and "knn" in s:
             bqry, _ = self.qryr.question(qst, min_match="10%")
-            bqry = add_filters(bqry)
+            if req.get("doc_ids"):
+                bqry = Q("bool", must=[])
+            bqry = self._add_filters(bqry, req)
             s["query"] = bqry.to_dict()
             s["knn"]["filter"] = bqry.to_dict()
             s["knn"]["similarity"] = 0.17

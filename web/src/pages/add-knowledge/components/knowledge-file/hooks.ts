@@ -1,4 +1,4 @@
-import { useSetModalState, useTranslate } from '@/hooks/commonHooks';
+import { useSetModalState, useTranslate } from '@/hooks/common-hooks';
 import {
   useCreateDocument,
   useFetchDocumentList,
@@ -7,13 +7,13 @@ import {
   useSelectRunDocumentLoading,
   useSetDocumentParser,
   useUploadDocument,
-} from '@/hooks/documentHooks';
-import { useGetKnowledgeSearchParams } from '@/hooks/routeHook';
-import { useOneNamespaceEffectsLoading } from '@/hooks/storeHooks';
-import { useFetchTenantInfo } from '@/hooks/userSettingHook';
+  useWebCrawl,
+} from '@/hooks/document-hooks';
+import { useGetKnowledgeSearchParams } from '@/hooks/route-hook';
+import { useOneNamespaceEffectsLoading } from '@/hooks/store-hooks';
 import { Pagination } from '@/interfaces/common';
 import { IChangeParserConfigRequestBody } from '@/interfaces/request/document';
-import { getUnSupportedFilesCount } from '@/utils/documentUtils';
+import { getUnSupportedFilesCount } from '@/utils/document-util';
 import { PaginationProps, UploadFile } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useNavigate, useSelector } from 'umi';
@@ -23,8 +23,6 @@ export const useFetchDocumentListOnMount = () => {
   const { knowledgeId } = useGetKnowledgeSearchParams();
   const fetchDocumentList = useFetchDocumentList();
   const dispatch = useDispatch();
-
-  useFetchTenantInfo();
 
   useEffect(() => {
     if (knowledgeId) {
@@ -283,6 +281,37 @@ export const useHandleUploadDocument = () => {
     documentUploadVisible,
     hideDocumentUploadModal,
     showDocumentUploadModal,
+  };
+};
+
+export const useHandleWebCrawl = () => {
+  const {
+    visible: webCrawlUploadVisible,
+    hideModal: hideWebCrawlUploadModal,
+    showModal: showWebCrawlUploadModal,
+  } = useSetModalState();
+  const webCrawl = useWebCrawl();
+
+  const onWebCrawlUploadOk = useCallback(
+    async (name: string, url: string) => {
+      const ret = await webCrawl(name, url);
+      if (ret === 0) {
+        hideWebCrawlUploadModal();
+        return 0;
+      }
+      return -1;
+    },
+    [webCrawl, hideWebCrawlUploadModal],
+  );
+
+  const loading = useOneNamespaceEffectsLoading('kFModel', ['web_crawl']);
+
+  return {
+    webCrawlUploadLoading: loading,
+    onWebCrawlUploadOk,
+    webCrawlUploadVisible,
+    hideWebCrawlUploadModal,
+    showWebCrawlUploadModal,
   };
 };
 

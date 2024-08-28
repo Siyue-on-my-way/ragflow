@@ -3,11 +3,11 @@ import SvgIcon from '@/components/svg-icon';
 import {
   useSelectDocumentList,
   useSetDocumentStatus,
-} from '@/hooks/documentHooks';
-import { useSetSelectedRecord } from '@/hooks/logicHooks';
-import { useSelectParserList } from '@/hooks/userSettingHook';
+} from '@/hooks/document-hooks';
+import { useSetSelectedRecord } from '@/hooks/logic-hooks';
+import { useSelectParserList } from '@/hooks/user-setting-hooks';
 import { IKnowledgeFile } from '@/interfaces/database/knowledge';
-import { getExtension } from '@/utils/documentUtils';
+import { getExtension } from '@/utils/document-util';
 import { Divider, Flex, Switch, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useTranslation } from 'react-i18next';
@@ -20,12 +20,14 @@ import {
   useGetPagination,
   useGetRowSelection,
   useHandleUploadDocument,
+  useHandleWebCrawl,
   useNavigateToOtherPage,
   useRenameDocument,
 } from './hooks';
 import ParsingActionCell from './parsing-action-cell';
 import ParsingStatusCell from './parsing-status-cell';
 import RenameModal from './rename-modal';
+import WebCrawlModal from './web-crawl-modal';
 
 import FileUploadModal from '@/components/file-upload-modal';
 import { formatDate } from '@/utils/date';
@@ -69,6 +71,13 @@ const KnowledgeFile = () => {
     onDocumentUploadOk,
     documentUploadLoading,
   } = useHandleUploadDocument();
+  const {
+    webCrawlUploadVisible,
+    hideWebCrawlUploadModal,
+    showWebCrawlUploadModal,
+    onWebCrawlUploadOk,
+    webCrawlUploadLoading,
+  } = useHandleWebCrawl();
   const { t } = useTranslation('translation', {
     keyPrefix: 'knowledgeDetails',
   });
@@ -170,6 +179,7 @@ const KnowledgeFile = () => {
       <DocumentToolbar
         selectedRowKeys={rowSelection.selectedRowKeys as string[]}
         showCreateModal={showCreateModal}
+        showWebCrawlModal={showWebCrawlUploadModal}
         showDocumentUploadModal={showDocumentUploadModal}
       ></DocumentToolbar>
       <Table
@@ -211,6 +221,12 @@ const KnowledgeFile = () => {
         loading={documentUploadLoading}
         onOk={onDocumentUploadOk}
       ></FileUploadModal>
+      <WebCrawlModal
+        visible={webCrawlUploadVisible}
+        hideModal={hideWebCrawlUploadModal}
+        loading={webCrawlUploadLoading}
+        onOk={onWebCrawlUploadOk}
+      ></WebCrawlModal>
     </div>
   );
 };

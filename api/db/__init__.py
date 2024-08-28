@@ -55,6 +55,7 @@ class LLMType(StrEnum):
     SPEECH2TEXT = 'speech2text'
     IMAGE2TEXT = 'image2text'
     RERANK = 'rerank'
+    TTS    = 'tts'
 
 
 class ChatStyle(StrEnum):
@@ -84,11 +85,19 @@ class ParserType(StrEnum):
     NAIVE = "naive"
     PICTURE = "picture"
     ONE = "one"
+    AUDIO = "audio"
+    EMAIL = "email"
+    KG = "knowledge_graph"
 
 
 class FileSource(StrEnum):
     LOCAL = ""
     KNOWLEDGEBASE = "knowledgebase"
     S3 = "s3"
+
+
+class CanvasType(StrEnum):
+    ChatBot = "chatbot"
+    DocBot = "docbot"
 
 KNOWLEDGEBASE_FOLDER_NAME=".knowledgebase"

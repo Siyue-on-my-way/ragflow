@@ -33,11 +33,6 @@ const routes = [
                 component: '@/pages/add-knowledge/components/knowledge-file',
               },
               {
-                path: '/knowledge/dataset/upload',
-                component:
-                  '@/pages/add-knowledge/components/knowledge-dataset/knowledge-upload-file',
-              },
-              {
                 path: '/knowledge/dataset/chunk',
                 component: '@/pages/add-knowledge/components/knowledge-chunk',
               },
@@ -90,6 +85,10 @@ const routes = [
       },
       {
         path: '/flow',
+        component: '@/pages/flow/list',
+      },
+      {
+        path: '/flow/:id',
         component: '@/pages/flow',
       },
     ],
@@ -97,6 +96,11 @@ const routes = [
   {
     path: 'document/:id',
     component: '@/pages/document-viewer',
+    layout: false,
+  },
+  {
+    path: 'force',
+    component: '@/pages/force-graph',
     layout: false,
   },
   {

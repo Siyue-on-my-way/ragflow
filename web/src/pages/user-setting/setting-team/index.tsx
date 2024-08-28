@@ -1,11 +1,11 @@
 import { Button, Card, Flex } from 'antd';
 
-import { useTranslate } from '@/hooks/commonHooks';
-import { useSelectUserInfo } from '@/hooks/userSettingHook';
+import { useTranslate } from '@/hooks/common-hooks';
+import { useFetchUserInfo } from '@/hooks/user-setting-hooks';
 import styles from './index.less';
 
 const UserSettingTeam = () => {
-  const userInfo = useSelectUserInfo();
+  const { data: userInfo } = useFetchUserInfo();
   const { t } = useTranslate('setting');
 
   return (
@@ -15,7 +15,9 @@ const UserSettingTeam = () => {
           <span>
             {userInfo.nickname} {t('workspace')}
           </span>
-          <Button type="primary">{t('upgrade')}</Button>
+          <Button type="primary" disabled>
+            {t('upgrade')}
+          </Button>
         </Flex>
       </Card>
     </div>

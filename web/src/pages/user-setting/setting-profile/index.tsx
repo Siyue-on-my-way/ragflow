@@ -1,13 +1,9 @@
-import {
-  useFetchUserInfo,
-  useSaveSetting,
-  useSelectUserInfo,
-} from '@/hooks/userSettingHook';
+import { useFetchUserInfo, useSaveSetting } from '@/hooks/user-setting-hooks';
 import {
   getBase64FromUploadFileList,
   getUploadFileListFromBase64,
   normFile,
-} from '@/utils/fileUtil';
+} from '@/utils/file-util';
 import { PlusOutlined } from '@ant-design/icons';
 import {
   Button,
@@ -24,15 +20,11 @@ import camelCase from 'lodash/camelCase';
 import { useEffect } from 'react';
 import SettingTitle from '../components/setting-title';
 import { TimezoneList } from '../constants';
-import {
-  useSelectSubmitUserInfoLoading,
-  useSelectUserInfoLoading,
-  useValidateSubmittable,
-} from '../hooks';
+import { useValidateSubmittable } from '../hooks';
 
 import { LanguageList } from '@/constants/common';
-import { useTranslate } from '@/hooks/commonHooks';
-import { useChangeLanguage } from '@/hooks/logicHooks';
+import { useTranslate } from '@/hooks/common-hooks';
+import { useChangeLanguage } from '@/hooks/logic-hooks';
 import parentStyles from '../index.less';
 import styles from './index.less';
 
@@ -52,12 +44,9 @@ const tailLayout = {
 };
 
 const UserSettingProfile = () => {
-  const userInfo = useSelectUserInfo();
-  const saveSetting = useSaveSetting();
-  const submitLoading = useSelectSubmitUserInfoLoading();
+  const { data: userInfo, loading } = useFetchUserInfo();
+  const { saveSetting, loading: submitLoading } = useSaveSetting();
   const { form, submittable } = useValidateSubmittable();
-  const loading = useSelectUserInfoLoading();
-  useFetchUserInfo();
   const { t } = useTranslate('setting');
   const changeLanguage = useChangeLanguage();
 

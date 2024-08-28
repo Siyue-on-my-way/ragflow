@@ -13,10 +13,16 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License
 #
-
+import datetime
+import hashlib
+import json
 import os
 import pathlib
 import re
+import traceback
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from io import BytesIO
 
 import flask
 from elasticsearch_dsl import Q
@@ -24,21 +30,27 @@ from flask import request
 from flask_login import login_required, current_user
 
 from api.db.db_models import Task, File
+from api.db.services.dialog_service import DialogService, ConversationService
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.file_service import FileService
+from api.db.services.llm_service import LLMBundle
 from api.db.services.task_service import TaskService, queue_tasks
+from api.db.services.user_service import TenantService
+from graphrag.mind_map_extractor import MindMapExtractor
+from rag.app import naive
 from rag.nlp import search
 from rag.utils.es_conn import ELASTICSEARCH
 from api.db.services import duplicate_name
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.utils.api_utils import server_error_response, get_data_error_result, validate_request
 from api.utils import get_uuid
-from api.db import FileType, TaskStatus, ParserType, FileSource
-from api.db.services.document_service import DocumentService
-from api.settings import RetCode
+from api.db import FileType, TaskStatus, ParserType, FileSource, LLMType
+from api.db.services.document_service import DocumentService, doc_upload_and_parse
+from api.settings import RetCode, stat_logger
 from api.utils.api_utils import get_json_result
 from rag.utils.minio_conn import MINIO
-from api.utils.file_utils import filename_type, thumbnail
+from api.utils.file_utils import filename_type, thumbnail, get_project_base_directory
+from api.utils.web_utils import html2pdf, is_valid_url
 
 
 @manager.route('/upload', methods=['POST'])
@@ -63,56 +75,74 @@ def upload():
     if not e:
         raise LookupError("Can't find this knowledgebase!")
 
+    err, _ = FileService.upload_document(kb, file_objs, current_user.id)
+    if err:
+        return get_json_result(
+            data=False, retmsg="\n".join(err), retcode=RetCode.SERVER_ERROR)
+    return get_json_result(data=True)
+
+
+@manager.route('/web_crawl', methods=['POST'])
+@login_required
+@validate_request("kb_id", "name", "url")
+def web_crawl():
+    kb_id = request.form.get("kb_id")
+    if not kb_id:
+        return get_json_result(
+            data=False, retmsg='Lack of "KB ID"', retcode=RetCode.ARGUMENT_ERROR)
+    name = request.form.get("name")
+    url = request.form.get("url")
+    if not is_valid_url(url):
+        return get_json_result(
+            data=False, retmsg='The URL format is invalid', retcode=RetCode.ARGUMENT_ERROR)
+    e, kb = KnowledgebaseService.get_by_id(kb_id)
+    if not e:
+        raise LookupError("Can't find this knowledgebase!")
+
+    blob = html2pdf(url)
+    if not blob: return server_error_response(ValueError("Download failure."))
+
     root_folder = FileService.get_root_folder(current_user.id)
     pf_id = root_folder["id"]
     FileService.init_knowledgebase_docs(pf_id, current_user.id)
     kb_root_folder = FileService.get_kb_folder(current_user.id)
     kb_folder = FileService.new_a_file_from_kb(kb.tenant_id, kb.name, kb_root_folder["id"])
 
-    err = []
-    for file in file_objs:
-        try:
-            MAX_FILE_NUM_PER_USER = int(os.environ.get('MAX_FILE_NUM_PER_USER', 0))
-            if MAX_FILE_NUM_PER_USER > 0 and DocumentService.get_doc_count(kb.tenant_id) >= MAX_FILE_NUM_PER_USER:
-                raise RuntimeError("Exceed the maximum file number of a free user!")
+    try:
+        filename = duplicate_name(
+            DocumentService.query,
+            name=name + ".pdf",
+            kb_id=kb.id)
+        filetype = filename_type(filename)
+        if filetype == FileType.OTHER.value:
+            raise RuntimeError("This type of file has not been supported yet!")
 
-            filename = duplicate_name(
-                DocumentService.query,
-                name=file.filename,
-                kb_id=kb.id)
-            filetype = filename_type(filename)
-            if filetype == FileType.OTHER.value:
-                raise RuntimeError("This type of file has not been supported yet!")
-
-            location = filename
-            while MINIO.obj_exist(kb_id, location):
-                location += "_"
-            blob = file.read()
-            MINIO.put(kb_id, location, blob)
-            doc = {
-                "id": get_uuid(),
-                "kb_id": kb.id,
-                "parser_id": kb.parser_id,
-                "parser_config": kb.parser_config,
-                "created_by": current_user.id,
-                "type": filetype,
-                "name": filename,
-                "location": location,
-                "size": len(blob),
-                "thumbnail": thumbnail(filename, blob)
-            }
-            if doc["type"] == FileType.VISUAL:
-                doc["parser_id"] = ParserType.PICTURE.value
-            if re.search(r"\.(ppt|pptx|pages)$", filename):
-                doc["parser_id"] = ParserType.PRESENTATION.value
-            DocumentService.insert(doc)
-
-            FileService.add_file_from_kb(doc, kb_folder["id"], kb.tenant_id)
-        except Exception as e:
-            err.append(file.filename + ": " + str(e))
-    if err:
-        return get_json_result(
-            data=False, retmsg="\n".join(err), retcode=RetCode.SERVER_ERROR)
+        location = filename
+        while MINIO.obj_exist(kb_id, location):
+            location += "_"
+        MINIO.put(kb_id, location, blob)
+        doc = {
+            "id": get_uuid(),
+            "kb_id": kb.id,
+            "parser_id": kb.parser_id,
+            "parser_config": kb.parser_config,
+            "created_by": current_user.id,
+            "type": filetype,
+            "name": filename,
+            "location": location,
+            "size": len(blob),
+            "thumbnail": thumbnail(filename, blob)
+        }
+        if doc["type"] == FileType.VISUAL:
+            doc["parser_id"] = ParserType.PICTURE.value
+        if doc["type"] == FileType.AURAL:
+            doc["parser_id"] = ParserType.AUDIO.value
+        if re.search(r"\.(ppt|pptx|pages)$", filename):
+            doc["parser_id"] = ParserType.PRESENTATION.value
+        DocumentService.insert(doc)
+        FileService.add_file_from_kb(doc, kb_folder["id"], kb.tenant_id)
+    except Exception as e:
+        return server_error_response(e)
     return get_json_result(data=True)
 
 
@@ -173,8 +203,16 @@ def list_docs():
         return server_error_response(e)
 
 
+@manager.route('/infos', methods=['POST'])
+def docinfos():
+    req = request.json
+    doc_ids = req["doc_ids"]
+    docs = DocumentService.get_by_ids(doc_ids)
+    return get_json_result(data=list(docs.dicts()))
+
+
 @manager.route('/thumbnails', methods=['GET'])
-@login_required
+#@login_required
 def thumbnails():
     doc_ids = request.args.get("doc_ids").split(",")
     if not doc_ids:
@@ -289,7 +327,7 @@ def run():
                 return get_data_error_result(retmsg="Tenant not found!")
             ELASTICSEARCH.deleteByQuery(
                 Q("match", doc_id=id), idxnm=search.index_name(tenant_id))
-            
+
             if str(req["run"]) == TaskStatus.RUNNING.value:
                 TaskService.filter_delete([Task.doc_id == id])
                 e, doc = DocumentService.get_by_id(id)
@@ -346,7 +384,7 @@ def get(doc_id):
         if not e:
             return get_data_error_result(retmsg="Document not found!")
 
-        b,n = File2DocumentService.get_minio_address(doc_id=doc_id)
+        b, n = File2DocumentService.get_minio_address(doc_id=doc_id)
         response = flask.make_response(MINIO.get(b, n))
 
         ext = re.search(r"\.([^.]+)$", doc.name)
@@ -416,3 +454,22 @@ def get_image(image_id):
         return response
     except Exception as e:
         return server_error_response(e)
+
+
+@manager.route('/upload_and_parse', methods=['POST'])
+@login_required
+@validate_request("conversation_id")
+def upload_and_parse():
+    if 'file' not in request.files:
+        return get_json_result(
+            data=False, retmsg='No file part!', retcode=RetCode.ARGUMENT_ERROR)
+
+    file_objs = request.files.getlist('file')
+    for file_obj in file_objs:
+        if file_obj.filename == '':
+            return get_json_result(
+                data=False, retmsg='No file selected!', retcode=RetCode.ARGUMENT_ERROR)
+
+    doc_ids = doc_upload_and_parse(request.form.get("conversation_id"), file_objs, current_user.id)
+
+    return get_json_result(data=doc_ids)

@@ -1,7 +1,13 @@
-import { useTranslate } from '@/hooks/commonHooks';
+import NewDocumentLink from '@/components/new-document-link';
+import SvgIcon from '@/components/svg-icon';
+import { useTranslate } from '@/hooks/common-hooks';
 import { IFile } from '@/interfaces/database/file-manager';
 import { api_host } from '@/utils/api';
-import { downloadFile } from '@/utils/fileUtil';
+import {
+  getExtension,
+  isSupportedPreviewDocumentType,
+} from '@/utils/document-util';
+import { downloadFile } from '@/utils/file-util';
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -11,20 +17,13 @@ import {
 } from '@ant-design/icons';
 import { Button, Space, Tooltip } from 'antd';
 import { useHandleDeleteFile } from '../hooks';
-
-import NewDocumentLink from '@/components/new-document-link';
-import { SupportedPreviewDocumentTypes } from '@/constants/common';
-import { getExtension } from '@/utils/documentUtils';
 import styles from './index.less';
-
-const isSupportedPreviewDocumentType = (fileExtension: string) => {
-  return SupportedPreviewDocumentTypes.includes(fileExtension);
-};
 
 interface IProps {
   record: IFile;
   setCurrentRecord: (record: any) => void;
   showRenameModal: (record: IFile) => void;
+  showMoveFileModal: (ids: string[]) => void;
   showConnectToKnowledgeModal: (record: IFile) => void;
   setSelectedRowKeys(keys: string[]): void;
 }
@@ -35,6 +34,7 @@ const ActionCell = ({
   showRenameModal,
   showConnectToKnowledgeModal,
   setSelectedRowKeys,
+  showMoveFileModal,
 }: IProps) => {
   const documentId = record.id;
   const beingUsed = false;
@@ -66,6 +66,10 @@ const ActionCell = ({
     showConnectToKnowledgeModal(record);
   };
 
+  const onShowMoveFileModal = () => {
+    showMoveFileModal([documentId]);
+  };
+
   return (
     <Space size={0}>
       {isKnowledgeBase || (
@@ -89,6 +93,18 @@ const ActionCell = ({
             className={styles.iconButton}
           >
             <EditOutlined size={20} />
+          </Button>
+        </Tooltip>
+      )}
+      {isKnowledgeBase || (
+        <Tooltip title={t('move', { keyPrefix: 'common' })}>
+          <Button
+            type="text"
+            disabled={beingUsed}
+            onClick={onShowMoveFileModal}
+            className={styles.iconButton}
+          >
+            <SvgIcon name={`move`} width={16}></SvgIcon>
           </Button>
         </Tooltip>
       )}
@@ -118,8 +134,9 @@ const ActionCell = ({
       )}
       {isSupportedPreviewDocumentType(extension) && (
         <NewDocumentLink
+          documentId={documentId}
+          documentName={record.name}
           color="black"
-          link={`/document/${documentId}?ext=${extension}`}
         >
           <Tooltip title={t('preview')}>
             <Button type="text" className={styles.iconButton}>

@@ -1,100 +1,153 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import ReactFlow, {
   Background,
+  ConnectionMode,
   Controls,
-  Edge,
-  Node,
   NodeMouseHandler,
-  OnConnect,
-  OnEdgesChange,
-  OnNodesChange,
-  addEdge,
-  applyEdgeChanges,
-  applyNodeChanges,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { NodeContextMenu, useHandleNodeContextMenu } from './context-menu';
+import { ButtonEdge } from './edge';
 
 import FlowDrawer from '../flow-drawer';
 import {
   useHandleDrop,
   useHandleKeyUp,
-  useHandleSelectionChange,
+  useSelectCanvasData,
   useShowDrawer,
+  useValidateConnection,
+  useWatchNodeFormDataChange,
 } from '../hooks';
-import { dsl } from '../mock';
-import { TextUpdaterNode } from './node';
+import { RagNode } from './node';
 
-const nodeTypes = { textUpdater: TextUpdaterNode };
+import ChatDrawer from '../chat/drawer';
+import styles from './index.less';
+import { BeginNode } from './node/begin-node';
+import { CategorizeNode } from './node/categorize-node';
+import { LogicNode } from './node/logic-node';
+import { RelevantNode } from './node/relevant-node';
+
+const nodeTypes = {
+  ragNode: RagNode,
+  categorizeNode: CategorizeNode,
+  beginNode: BeginNode,
+  relevantNode: RelevantNode,
+  logicNode: LogicNode,
+};
+
+const edgeTypes = {
+  buttonEdge: ButtonEdge,
+};
 
 interface IProps {
-  sideWidth: number;
+  chatDrawerVisible: boolean;
+  hideChatDrawer(): void;
 }
 
-function FlowCanvas({ sideWidth }: IProps) {
-  const [nodes, setNodes] = useState<Node[]>(dsl.graph.nodes);
-  const [edges, setEdges] = useState<Edge[]>(dsl.graph.edges);
+function FlowCanvas({ chatDrawerVisible, hideChatDrawer }: IProps) {
+  const {
+    nodes,
+    edges,
+    onConnect,
+    onEdgesChange,
+    onNodesChange,
+    onSelectionChange,
+  } = useSelectCanvasData();
+  const isValidConnection = useValidateConnection();
 
-  const { selectedEdges, selectedNodes } = useHandleSelectionChange();
+  const { drawerVisible, hideDrawer, showDrawer, clickedNode } =
+    useShowDrawer();
 
-  const { ref, menu, onNodeContextMenu, onPaneClick } =
-    useHandleNodeContextMenu(sideWidth);
-  const { drawerVisible, hideDrawer, showDrawer } = useShowDrawer();
-
-  const onNodesChange: OnNodesChange = useCallback(
-    (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
-    [],
-  );
-  const onEdgesChange: OnEdgesChange = useCallback(
-    (changes) => setEdges((eds) => applyEdgeChanges(changes, eds)),
-    [],
-  );
-
-  const onConnect: OnConnect = useCallback(
-    (params) => setEdges((eds) => addEdge(params, eds)),
-    [],
+  const onNodeClick: NodeMouseHandler = useCallback(
+    (e, node) => {
+      showDrawer(node);
+    },
+    [showDrawer],
   );
 
-  const onNodeClick: NodeMouseHandler = useCallback(() => {
-    showDrawer();
-  }, [showDrawer]);
+  const onPaneClick = useCallback(() => {
+    hideDrawer();
+  }, [hideDrawer]);
 
-  const { onDrop, onDragOver, setReactFlowInstance } = useHandleDrop(setNodes);
+  const { onDrop, onDragOver, setReactFlowInstance } = useHandleDrop();
 
-  const { handleKeyUp } = useHandleKeyUp(selectedEdges, selectedNodes);
-
-  useEffect(() => {
-    console.info('nodes:', nodes);
-    console.info('edges:', edges);
-  }, [nodes, edges]);
+  const { handleKeyUp } = useHandleKeyUp();
+  useWatchNodeFormDataChange();
 
   return (
-    <div style={{ height: '100%', width: '100%' }}>
+    <div className={styles.canvasWrapper}>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ position: 'absolute', top: 10, left: 0 }}
+      >
+        <defs>
+          <marker
+            fill="rgb(157 149 225)"
+            id="logo"
+            viewBox="0 0 40 40"
+            refX="8"
+            refY="5"
+            markerUnits="strokeWidth"
+            markerWidth="20"
+            markerHeight="20"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" />
+          </marker>
+        </defs>
+      </svg>
       <ReactFlow
-        ref={ref}
+        connectionMode={ConnectionMode.Loose}
         nodes={nodes}
         onNodesChange={onNodesChange}
-        onNodeContextMenu={onNodeContextMenu}
         edges={edges}
         onEdgesChange={onEdgesChange}
         fitView
         onConnect={onConnect}
         nodeTypes={nodeTypes}
-        onPaneClick={onPaneClick}
+        edgeTypes={edgeTypes}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
         onInit={setReactFlowInstance}
         onKeyUp={handleKeyUp}
+        onSelectionChange={onSelectionChange}
+        nodeOrigin={[0.5, 0]}
+        isValidConnection={isValidConnection}
+        onChange={(...params) => {
+          console.info('params:', ...params);
+        }}
+        defaultEdgeOptions={{
+          type: 'buttonEdge',
+          markerEnd: 'logo',
+          // markerEnd: {
+          //   type: MarkerType.ArrowClosed,
+          //   color: 'rgb(157 149 225)',
+          //   width: 20,
+          //   height: 20,
+          // },
+          style: {
+            // edge style
+            strokeWidth: 2,
+            stroke: 'rgb(202 197 245)',
+          },
+        }}
       >
         <Background />
         <Controls />
-        {Object.keys(menu).length > 0 && (
-          <NodeContextMenu onClick={onPaneClick} {...(menu as any)} />
-        )}
       </ReactFlow>
-      <FlowDrawer visible={drawerVisible} hideModal={hideDrawer}></FlowDrawer>
+      <FlowDrawer
+        node={clickedNode}
+        visible={drawerVisible}
+        hideModal={hideDrawer}
+      ></FlowDrawer>
+      {chatDrawerVisible && (
+        <ChatDrawer
+          visible={chatDrawerVisible}
+          hideModal={hideChatDrawer}
+        ></ChatDrawer>
+      )}
     </div>
   );
 }

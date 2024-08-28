@@ -44,9 +44,14 @@ class RedisDB:
             logging.warning("Redis can't be connected.")
         return self.REDIS
 
-    def health(self, queue_name):
+    def health(self):
+
         self.REDIS.ping()
-        return self.REDIS.xinfo_groups(queue_name)[0]
+        a, b = 'xx', 'yy'
+        self.REDIS.set(a, b, 3)
+
+        if self.REDIS.get(a) == b:
+            return True
 
     def is_alive(self):
         return self.REDIS is not None
@@ -102,7 +107,7 @@ class RedisDB:
                 payload = {"message": json.dumps(message)}
                 pipeline = self.REDIS.pipeline()
                 pipeline.xadd(queue, payload)
-                pipeline.expire(queue, exp)
+                #pipeline.expire(queue, exp)
                 pipeline.execute()
                 return True
             except Exception as e:
@@ -138,8 +143,24 @@ class RedisDB:
             if 'key' in str(e):
                 pass
             else:
-                logging.warning("[EXCEPTION]consumer" + str(queue_name) + "||" + str(e))
+                logging.warning("[EXCEPTION]consumer: " + str(queue_name) + "||" + str(e))
         return None
 
+    def get_unacked_for(self, consumer_name, queue_name, group_name):
+        try:
+            group_info = self.REDIS.xinfo_groups(queue_name)
+            if not any(e["name"] == group_name for e in group_info):
+                return
+            pendings = self.REDIS.xpending_range(queue_name, group_name, min=0, max=10000000000000, count=1, consumername=consumer_name)
+            if not pendings: return
+            msg_id = pendings[0]["message_id"]
+            msg = self.REDIS.xrange(queue_name, min=msg_id, count=1)
+            _, payload = msg[0]
+            return Payload(self.REDIS, queue_name, group_name, msg_id, payload)
+        except Exception as e:
+            if 'key' in str(e):
+                return
+            logging.warning("[EXCEPTION]xpending_range: " + consumer_name + "||" + str(e))
+            self.__open__()
 
 REDIS_CONN = RedisDB()

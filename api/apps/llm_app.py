@@ -20,8 +20,9 @@ from api.utils.api_utils import server_error_response, get_data_error_result, va
 from api.db import StatusEnum, LLMType
 from api.db.db_models import TenantLLM
 from api.utils.api_utils import get_json_result
-from rag.llm import EmbeddingModel, ChatModel, RerankModel
-
+from rag.llm import EmbeddingModel, ChatModel, RerankModel, CvModel, TTSModel
+import requests
+import ast
 
 @manager.route('/factories', methods=['GET'])
 @login_required
@@ -48,7 +49,7 @@ def set_api_key():
                 req["api_key"], llm.llm_name, base_url=req.get("base_url"))
             try:
                 arr, tc = mdl.encode(["Test if the api key is available"])
-                if len(arr[0]) == 0 or tc == 0:
+                if len(arr[0]) == 0:
                     raise Exception("Fail")
                 embd_passed = True
             except Exception as e:
@@ -57,9 +58,9 @@ def set_api_key():
             mdl = ChatModel[factory](
                 req["api_key"], llm.llm_name, base_url=req.get("base_url"))
             try:
-                m, tc = mdl.chat(None, [{"role": "user", "content": "Hello! How are you doing!"}], {
-                                 "temperature": 0.9})
-                if not tc:
+                m, tc = mdl.chat(None, [{"role": "user", "content": "Hello! How are you doing!"}], 
+                                 {"temperature": 0.9,'max_tokens':50})
+                if m.find("**ERROR**") >=0:
                     raise Exception(m)
             except Exception as e:
                 msg += f"\nFail to access model({llm.llm_name}) using this api key." + str(
@@ -105,22 +106,53 @@ def set_api_key():
 
 @manager.route('/add_llm', methods=['POST'])
 @login_required
-@validate_request("llm_factory", "llm_name", "model_type")
+@validate_request("llm_factory")
 def add_llm():
     req = request.json
     factory = req["llm_factory"]
-    # For VolcEngine, due to its special authentication method
-    # Assemble volc_ak, volc_sk, endpoint_id into api_key
+
     if factory == "VolcEngine":
-        temp = list(eval(req["llm_name"]).items())[0]
-        llm_name = temp[0]
-        endpoint_id = temp[1]
-        api_key = '{' + f'"volc_ak": "{req.get("volc_ak", "")}", ' \
-                        f'"volc_sk": "{req.get("volc_sk", "")}", ' \
-                        f'"ep_id": "{endpoint_id}", ' + '}'
+        # For VolcEngine, due to its special authentication method
+        # Assemble ark_api_key endpoint_id into api_key
+        llm_name = req["llm_name"]
+        api_key = '{' + f'"ark_api_key": "{req.get("ark_api_key", "")}", ' \
+                        f'"ep_id": "{req.get("endpoint_id", "")}", ' + '}'
+    elif factory == "Tencent Hunyuan":
+        api_key = '{' + f'"hunyuan_sid": "{req.get("hunyuan_sid", "")}", ' \
+                        f'"hunyuan_sk": "{req.get("hunyuan_sk", "")}"' + '}'
+        req["api_key"] = api_key
+        return set_api_key()
+    elif factory == "Tencent Cloud":
+        api_key = '{' + f'"tencent_cloud_sid": "{req.get("tencent_cloud_sid", "")}", ' \
+                f'"tencent_cloud_sk": "{req.get("tencent_cloud_sk", "")}"' + '}'
+        req["api_key"] = api_key
+    elif factory == "Bedrock":
+        # For Bedrock, due to its special authentication method
+        # Assemble bedrock_ak, bedrock_sk, bedrock_region
+        llm_name = req["llm_name"]
+        api_key = '{' + f'"bedrock_ak": "{req.get("bedrock_ak", "")}", ' \
+                        f'"bedrock_sk": "{req.get("bedrock_sk", "")}", ' \
+                        f'"bedrock_region": "{req.get("bedrock_region", "")}", ' + '}'
+    elif factory == "LocalAI":
+        llm_name = req["llm_name"]+"___LocalAI"
+        api_key = "xxxxxxxxxxxxxxx"
+    elif factory == "OpenAI-API-Compatible":
+        llm_name = req["llm_name"]+"___OpenAI-API"
+        api_key = req.get("api_key","xxxxxxxxxxxxxxx")
+    elif factory =="XunFei Spark":
+        llm_name = req["llm_name"]
+        api_key = req.get("spark_api_password","xxxxxxxxxxxxxxx") 
+    elif factory == "BaiduYiyan":
+        llm_name = req["llm_name"]
+        api_key = '{' + f'"yiyan_ak": "{req.get("yiyan_ak", "")}", ' \
+                f'"yiyan_sk": "{req.get("yiyan_sk", "")}"' + '}'
+    elif factory == "Fish Audio":
+        llm_name = req["llm_name"]
+        api_key = '{' + f'"fish_audio_ak": "{req.get("fish_audio_ak", "")}", ' \
+                f'"fish_audio_refid": "{req.get("fish_audio_refid", "59cb5986671546eaa6ca8ae6f29f6d22")}"' + '}'
     else:
         llm_name = req["llm_name"]
-        api_key = "xxxxxxxxxxxxxxx"
+        api_key = req.get("api_key","xxxxxxxxxxxxxxx") 
 
     llm = {
         "tenant_id": current_user.id,
@@ -134,7 +166,9 @@ def add_llm():
     msg = ""
     if llm["model_type"] == LLMType.EMBEDDING.value:
         mdl = EmbeddingModel[factory](
-            key=None, model_name=llm["llm_name"], base_url=llm["api_base"])
+            key=llm['api_key'],
+            model_name=llm["llm_name"], 
+            base_url=llm["api_base"])
         try:
             arr, tc = mdl.encode(["Test if the api key is available"])
             if len(arr[0]) == 0 or tc == 0:
@@ -143,7 +177,7 @@ def add_llm():
             msg += f"\nFail to access embedding model({llm['llm_name']})." + str(e)
     elif llm["model_type"] == LLMType.CHAT.value:
         mdl = ChatModel[factory](
-            key=llm['api_key'] if factory == "VolcEngine" else None,
+            key=llm['api_key'],
             model_name=llm["llm_name"],
             base_url=llm["api_base"]
         )
@@ -155,6 +189,49 @@ def add_llm():
         except Exception as e:
             msg += f"\nFail to access model({llm['llm_name']})." + str(
                 e)
+    elif llm["model_type"] == LLMType.RERANK:
+        mdl = RerankModel[factory](
+            key=llm["api_key"], 
+            model_name=llm["llm_name"], 
+            base_url=llm["api_base"]
+        )
+        try:
+            arr, tc = mdl.similarity("Hello~ Ragflower!", ["Hi, there!"])
+            if len(arr) == 0 or tc == 0:
+                raise Exception("Not known.")
+        except Exception as e:
+            msg += f"\nFail to access model({llm['llm_name']})." + str(
+                e)
+    elif llm["model_type"] == LLMType.IMAGE2TEXT.value:
+        mdl = CvModel[factory](
+            key=llm["api_key"], 
+            model_name=llm["llm_name"], 
+            base_url=llm["api_base"]
+        )
+        try:
+            img_url = (
+                "https://upload.wikimedia.org/wikipedia/comm"
+                "ons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/256"
+                "0px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+            )
+            res = requests.get(img_url)
+            if res.status_code == 200:
+                m, tc = mdl.describe(res.content)
+                if not tc:
+                    raise Exception(m)
+            else:
+                pass
+        except Exception as e:
+            msg += f"\nFail to access model({llm['llm_name']})." + str(e)
+    elif llm["model_type"] == LLMType.TTS:
+        mdl = TTSModel[factory](
+            key=llm["api_key"], model_name=llm["llm_name"], base_url=llm["api_base"]
+        )
+        try:
+            for resp in mdl.transcription("Hello~ Ragflower!"):
+                pass
+        except RuntimeError as e:
+            msg += f"\nFail to access model({llm['llm_name']})." + str(e)
     else:
         # TODO: check other type of models
         pass

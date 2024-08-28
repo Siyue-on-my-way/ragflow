@@ -1,7 +1,7 @@
 import { IModalManagerChildrenProps } from '@/components/modal-manager';
 import { LlmModelType } from '@/constants/knowledge';
-import { useTranslate } from '@/hooks/commonHooks';
-import { ISystemModelSettingSavingParams } from '@/hooks/llmHooks';
+import { useTranslate } from '@/hooks/common-hooks';
+import { ISystemModelSettingSavingParams } from '@/hooks/llm-hooks';
 import { Form, Modal, Select } from 'antd';
 import { useEffect } from 'react';
 import { useFetchSystemModelSettingOnMount } from '../hooks';
@@ -21,7 +21,7 @@ const SystemModelSettingModal = ({
 }: IProps) => {
   const [form] = Form.useForm();
   const { systemSetting: initialValues, allOptions } =
-    useFetchSystemModelSettingOnMount(visible);
+    useFetchSystemModelSettingOnMount();
   const { t } = useTranslate('setting');
 
   const handleOk = async () => {
@@ -82,6 +82,13 @@ const SystemModelSettingModal = ({
           tooltip={t('rerankModelTip')}
         >
           <Select options={allOptions[LlmModelType.Rerank]} />
+        </Form.Item>
+        <Form.Item
+          label={t('ttsModel')}
+          name="tts_id"
+          tooltip={t('ttsModelTip')}
+        >
+          <Select options={allOptions[LlmModelType.TTS]} />
         </Form.Item>
       </Form>
     </Modal>

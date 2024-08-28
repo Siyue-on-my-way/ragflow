@@ -1,13 +1,13 @@
-import { MessageType } from '@/constants/chat';
+import { MessageType, SharedFrom } from '@/constants/chat';
 import {
-  useCreateSharedConversation,
-  useFetchSharedConversation,
-} from '@/hooks/chatHooks';
-import { useSendMessageWithSse } from '@/hooks/logicHooks';
-import { useOneNamespaceEffectsLoading } from '@/hooks/storeHooks';
-import { IAnswer } from '@/interfaces/database/chat';
+  useCreateNextSharedConversation,
+  useFetchNextSharedConversation,
+} from '@/hooks/chat-hooks';
+import { useSendMessageWithSse } from '@/hooks/logic-hooks';
+import { IAnswer, Message } from '@/interfaces/database/chat';
 import api from '@/utils/api';
 import omit from 'lodash/omit';
+import trim from 'lodash/trim';
 import {
   Dispatch,
   SetStateAction,
@@ -24,12 +24,12 @@ export const useCreateSharedConversationOnMount = () => {
   const [currentQueryParameters] = useSearchParams();
   const [conversationId, setConversationId] = useState('');
 
-  const createConversation = useCreateSharedConversation();
+  const { createSharedConversation: createConversation } =
+    useCreateNextSharedConversation();
   const sharedId = currentQueryParameters.get('shared_id');
   const userId = currentQueryParameters.get('user_id');
 
   const setConversation = useCallback(async () => {
-    console.info(sharedId);
     if (sharedId) {
       const data = await createConversation(userId ?? undefined);
       const id = data.data?.id;
@@ -49,14 +49,11 @@ export const useCreateSharedConversationOnMount = () => {
 export const useSelectCurrentSharedConversation = (conversationId: string) => {
   const [currentConversation, setCurrentConversation] =
     useState<IClientConversation>({} as IClientConversation);
-  const fetchConversation = useFetchSharedConversation();
-  const loading = useOneNamespaceEffectsLoading('chatModel', [
-    'getExternalConversation',
-  ]);
+  const { fetchConversation, loading } = useFetchNextSharedConversation();
 
   const ref = useScrollToBottom(currentConversation);
 
-  const addNewestConversation = useCallback((message: string) => {
+  const addNewestConversation = useCallback((message: Partial<Message>) => {
     setCurrentConversation((pre) => {
       return {
         ...pre,
@@ -64,14 +61,15 @@ export const useSelectCurrentSharedConversation = (conversationId: string) => {
           ...(pre.message ?? []),
           {
             role: MessageType.User,
-            content: message,
+            content: message.content,
+            doc_ids: message.doc_ids,
             id: uuid(),
           } as IMessage,
           {
             role: MessageType.Assistant,
             content: '',
             id: uuid(),
-            reference: [],
+            reference: {},
           } as IMessage,
         ],
       };
@@ -133,15 +131,20 @@ export const useSelectCurrentSharedConversation = (conversationId: string) => {
   };
 };
 
+export const useSendButtonDisabled = (value: string) => {
+  return trim(value) === '';
+};
+
 export const useSendSharedMessage = (
   conversation: IClientConversation,
-  addNewestConversation: (message: string) => void,
+  addNewestConversation: (message: Partial<Message>, answer?: string) => void,
   removeLatestMessage: () => void,
   setCurrentConversation: Dispatch<SetStateAction<IClientConversation>>,
   addNewestAnswer: (answer: IAnswer) => void,
 ) => {
   const conversationId = conversation.id;
-  const setConversation = useCreateSharedConversation();
+  const { createSharedConversation: setConversation } =
+    useCreateNextSharedConversation();
   const { handleInputChange, value, setValue } = useHandleMessageInputChange();
 
   const { send, answer, done } = useSendMessageWithSse(
@@ -150,7 +153,7 @@ export const useSendSharedMessage = (
 
   const sendMessage = useCallback(
     async (message: string, id?: string) => {
-      const res: Response = await send({
+      const res = await send({
         conversation_id: id ?? conversationId,
         quote: false,
         messages: [
@@ -162,12 +165,7 @@ export const useSendSharedMessage = (
         ],
       });
 
-      if (res?.status === 200) {
-        // const data = await fetchConversation(conversationId);
-        // if (data.retcode === 0) {
-        //   setCurrentConversation(data.data);
-        // }
-      } else {
+      if (res && (res?.response.status !== 200 || res?.data?.retcode !== 0)) {
         // cancel loading
         setValue(message);
         removeLatestMessage();
@@ -205,18 +203,31 @@ export const useSendSharedMessage = (
     }
   }, [answer, addNewestAnswer]);
 
-  const handlePressEnter = useCallback(() => {
-    if (done) {
-      setValue('');
-      addNewestConversation(value);
-      handleSendMessage(value.trim());
-    }
-  }, [addNewestConversation, done, handleSendMessage, setValue, value]);
+  const handlePressEnter = useCallback(
+    (documentIds: string[]) => {
+      if (trim(value) === '') return;
+      if (done) {
+        setValue('');
+        addNewestConversation({ content: value, doc_ids: documentIds });
+        handleSendMessage(value.trim());
+      }
+    },
+    [addNewestConversation, done, handleSendMessage, setValue, value],
+  );
 
   return {
     handlePressEnter,
     handleInputChange,
     value,
     loading: !done,
+  };
+};
+
+export const useGetSharedChatSearchParams = () => {
+  const [searchParams] = useSearchParams();
+
+  return {
+    from: searchParams.get('from') as SharedFrom,
+    sharedId: searchParams.get('shared_id'),
   };
 };

@@ -25,7 +25,7 @@ LoggerFactory.set_directory(
         "logs",
         "api"))
 # {CRITICAL: 50, FATAL:50, ERROR:40, WARNING:30, WARN:30, INFO:20, DEBUG:10, NOTSET:0}
-LoggerFactory.LEVEL = 10
+LoggerFactory.LEVEL = 30
 
 stat_logger = getLogger("stat")
 access_logger = getLogger("access")
@@ -34,6 +34,7 @@ chat_logger = getLogger("chat")
 
 from rag.utils.es_conn import ELASTICSEARCH
 from rag.nlp import search
+from graphrag import search as kg_search
 from api.utils import get_base_config, decrypt_database_config
 
 API_VERSION = "v1"
@@ -68,6 +69,12 @@ default_llm = {
         "embedding_model": "text-embedding-ada-002",
         "image2text_model": "gpt-4-vision-preview",
         "asr_model": "whisper-1",
+    },
+    "Azure-OpenAI": {
+        "chat_model": "azure-gpt-35-turbo",
+        "embedding_model": "azure-text-embedding-ada-002",
+        "image2text_model": "azure-gpt-4-vision-preview",
+        "asr_model": "azure-whisper-1",
     },
     "ZHIPU-AI": {
         "chat_model": "glm-3-turbo",
@@ -125,7 +132,7 @@ IMAGE2TEXT_MDL = default_llm[LLM_FACTORY]["image2text_model"]
 API_KEY = LLM.get("api_key", "")
 PARSERS = LLM.get(
     "parsers",
-    "naive:General,qa:Q&A,resume:Resume,manual:Manual,table:Table,paper:Paper,book:Book,laws:Laws,presentation:Presentation,picture:Picture,one:One")
+    "naive:General,qa:Q&A,resume:Resume,manual:Manual,table:Table,paper:Paper,book:Book,laws:Laws,presentation:Presentation,picture:Picture,one:One,audio:Audio,knowledge_graph:Knowledge Graph,email:Email")
 
 # distribution
 DEPENDENT_DISTRIBUTION = get_base_config("dependent_distribution", False)
@@ -198,6 +205,7 @@ PRIVILEGE_COMMAND_WHITELIST = []
 CHECK_NODES_IDENTITY = False
 
 retrievaler = search.Dealer(ELASTICSEARCH)
+kg_retrievaler = kg_search.KGSearch(ELASTICSEARCH)
 
 
 class CustomEnum(Enum):
@@ -239,4 +247,5 @@ class RetCode(IntEnum, CustomEnum):
     RUNNING = 106
     PERMISSION_ERROR = 108
     AUTHENTICATION_ERROR = 109
+    UNAUTHORIZED = 401
     SERVER_ERROR = 500

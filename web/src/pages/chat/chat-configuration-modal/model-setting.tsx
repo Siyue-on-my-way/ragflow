@@ -1,18 +1,10 @@
-import {
-  LlmModelType,
-  ModelVariableType,
-  settledModelVariableMap,
-} from '@/constants/knowledge';
-import { Divider, Flex, Form, InputNumber, Select, Slider, Switch } from 'antd';
 import classNames from 'classnames';
-import camelCase from 'lodash/camelCase';
 import { useEffect } from 'react';
 import { ISegmentedContentProps } from '../interface';
 
-import { useTranslate } from '@/hooks/commonHooks';
-import { useSelectLlmOptionsByModelType } from '@/hooks/llmHooks';
+import LlmSettingItems from '@/components/llm-setting-items';
+import { variableEnabledFieldMap } from '@/constants/chat';
 import { Variable } from '@/interfaces/database/chat';
-import { variableEnabledFieldMap } from '../constants';
 import styles from './index.less';
 
 const ModelSetting = ({
@@ -24,19 +16,6 @@ const ModelSetting = ({
   initialLlmSetting?: Variable;
   visible?: boolean;
 }) => {
-  const { t } = useTranslate('chat');
-  const parameterOptions = Object.values(ModelVariableType).map((x) => ({
-    label: t(camelCase(x)),
-    value: x,
-  }));
-
-  const modelOptions = useSelectLlmOptionsByModelType();
-
-  const handleParametersChange = (value: ModelVariableType) => {
-    const variable = settledModelVariableMap[value];
-    form.setFieldsValue({ llm_setting: variable });
-  };
-
   useEffect(() => {
     if (visible) {
       const values = Object.keys(variableEnabledFieldMap).reduce<
@@ -62,7 +41,8 @@ const ModelSetting = ({
         [styles.segmentedHidden]: !show,
       })}
     >
-      <Form.Item
+      {visible && <LlmSettingItems prefix="llm_setting"></LlmSettingItems>}
+      {/* <Form.Item
         label={t('model')}
         name="llm_id"
         tooltip={t('modelTip')}
@@ -279,7 +259,7 @@ const ModelSetting = ({
             }}
           </Form.Item>
         </Flex>
-      </Form.Item>
+      </Form.Item> */}
     </section>
   );
 };

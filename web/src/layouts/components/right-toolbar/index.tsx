@@ -1,4 +1,4 @@
-import { useTranslate } from '@/hooks/commonHooks';
+import { useTranslate } from '@/hooks/common-hooks';
 import { DownOutlined, GithubOutlined } from '@ant-design/icons';
 import { Dropdown, MenuProps, Space } from 'antd';
 import camelCase from 'lodash/camelCase';
@@ -6,8 +6,8 @@ import React from 'react';
 import User from '../user';
 
 import { LanguageList } from '@/constants/common';
-import { useChangeLanguage } from '@/hooks/logicHooks';
-import { useSelector } from 'umi';
+import { useChangeLanguage } from '@/hooks/logic-hooks';
+import { useFetchUserInfo } from '@/hooks/user-setting-hooks';
 import styled from './index.less';
 
 const Circle = ({ children, ...restProps }: React.PropsWithChildren) => {
@@ -25,7 +25,9 @@ const handleGithubCLick = () => {
 const RightToolBar = () => {
   const { t } = useTranslate('common');
   const changeLanguage = useChangeLanguage();
-  const { language = '' } = useSelector((state) => state.settingModel.userInfo);
+  const {
+    data: { language = 'English' },
+  } = useFetchUserInfo();
 
   const handleItemClick: MenuProps['onClick'] = ({ key }) => {
     changeLanguage(key);

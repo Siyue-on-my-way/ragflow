@@ -13,15 +13,14 @@ export default defineConfig({
   esbuildMinifyIIFE: true,
   icons: {},
   hash: true,
-  // favicons: ['/logo.svg'],
-  favicons:['/logo-embeded-chat-header1.png'],
+  favicons: ['/logo.svg'],
   clickToComponent: {},
   history: {
     type: 'browser',
   },
   plugins: ['@react-dev-inspector/umi4-plugin', '@umijs/plugins/dist/dva'],
   dva: {},
-
+  jsMinifier: 'terser',
   lessLoader: {
     modifyVars: {
       hack: `true; @import "~@/less/index.less";`,
@@ -31,7 +30,7 @@ export default defineConfig({
   copy: ['src/conf.json'],
   proxy: {
     '/v1': {
-      target: 'http://118.178.241.227/',
+      target: 'http://localhost:9380/',
       changeOrigin: true,
       ws: true,
       logger: console,

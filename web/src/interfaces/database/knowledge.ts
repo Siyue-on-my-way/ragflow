@@ -71,6 +71,7 @@ export interface ITenantInfo {
   tenant_id: string;
   chat_id: string;
   speech2text_id: string;
+  tts_id: string;
 }
 
 export interface IChunk {
@@ -107,6 +108,6 @@ export interface ITestingDocument {
 
 export interface ITestingResult {
   chunks: ITestingChunk[];
-  doc_aggs: Record<string, number>;
+  documents: ITestingDocument[];
   total: number;
 }

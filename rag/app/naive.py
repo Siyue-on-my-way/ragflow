@@ -16,15 +16,36 @@ from docx import Document
 from timeit import default_timer as timer
 import re
 from deepdoc.parser.pdf_parser import PlainParser
-from rag.nlp import rag_tokenizer, naive_merge, tokenize_table, tokenize_chunks, find_codec
-from deepdoc.parser import PdfParser, ExcelParser, DocxParser, HtmlParser
+from rag.nlp import rag_tokenizer, naive_merge, tokenize_table, tokenize_chunks, find_codec, concat_img, naive_merge_docx, tokenize_chunks_docx
+from deepdoc.parser import PdfParser, ExcelParser, DocxParser, HtmlParser, JsonParser, MarkdownParser, TxtParser
 from rag.settings import cron_logger
 from rag.utils import num_tokens_from_string
-
+from PIL import Image
+from functools import reduce
+from markdown import markdown
+from docx.image.exceptions import UnrecognizedImageError
 
 class Docx(DocxParser):
     def __init__(self):
         pass
+
+    def get_picture(self, document, paragraph):
+        img = paragraph._element.xpath('.//pic:pic')
+        if not img:
+            return None
+        img = img[0]
+        embed = img.xpath('.//a:blip/@r:embed')[0]
+        related_part = document.part.related_parts[embed]
+        try:
+            image_blob = related_part.image.blob
+        except UnrecognizedImageError:
+            print("Unrecognized image format. Skipping image.")
+            return None
+        try:
+            image = Image.open(BytesIO(image_blob)).convert('RGB')
+            return image
+        except Exception as e:
+            return None
 
     def __clean(self, line):
         line = re.sub(r"\u3000", " ", line).strip()
@@ -35,17 +56,41 @@ class Docx(DocxParser):
             filename) if not binary else Document(BytesIO(binary))
         pn = 0
         lines = []
+        last_image = None
         for p in self.doc.paragraphs:
             if pn > to_page:
                 break
-            if from_page <= pn < to_page and p.text.strip():
-                lines.append(self.__clean(p.text))
+            if from_page <= pn < to_page:
+                if p.text.strip():
+                    if p.style and p.style.name == 'Caption':
+                        former_image = None
+                        if lines and lines[-1][1] and lines[-1][2] != 'Caption':
+                            former_image = lines[-1][1].pop()
+                        elif last_image:
+                            former_image = last_image
+                            last_image = None
+                        lines.append((self.__clean(p.text), [former_image], p.style.name))
+                    else:
+                        current_image = self.get_picture(self.doc, p)
+                        image_list = [current_image]
+                        if last_image:
+                            image_list.insert(0, last_image)
+                            last_image = None
+                        lines.append((self.__clean(p.text), image_list, p.style.name))
+                else:
+                    if current_image := self.get_picture(self.doc, p):
+                        if lines:
+                            lines[-1][1].append(current_image)
+                        else:
+                            last_image = current_image
             for run in p.runs:
                 if 'lastRenderedPageBreak' in run._element.xml:
                     pn += 1
                     continue
                 if 'w:br' in run._element.xml and 'type="page"' in run._element.xml:
                     pn += 1
+        new_line = [(line[0], reduce(concat_img, line[1]) if line[1] else None) for line in lines]
+
         tbls = []
         for tb in self.doc.tables:
             html= "<table>"
@@ -64,7 +109,7 @@ class Docx(DocxParser):
                 html += "</tr>"
             html += "</table>"
             tbls.append(((None, html), ""))
-        return [(l, "") for l in lines if l], tbls
+        return new_line, tbls
 
 
 class Pdf(PdfParser):
@@ -99,6 +144,32 @@ class Pdf(PdfParser):
                 for b in self.boxes], tbls
 
 
+class Markdown(MarkdownParser):
+    def __call__(self, filename, binary=None):
+        txt = ""
+        tbls = []
+        if binary:
+            encoding = find_codec(binary)
+            txt = binary.decode(encoding, errors="ignore")
+        else:
+            with open(filename, "r") as f:
+                txt = f.read()
+        remainder, tables = self.extract_tables_and_remainder(f'{txt}\n')
+        sections = []
+        tbls = []
+        for sec in remainder.split("\n"):
+            if num_tokens_from_string(sec) > 10 * self.chunk_token_num:
+                sections.append((sec[:int(len(sec)/2)], ""))
+                sections.append((sec[int(len(sec)/2):], ""))
+            else:
+                sections.append((sec, ""))
+        print(tables)
+        for table in tables:
+            tbls.append(((None, markdown(table, extensions=['markdown.extensions.tables'])), ""))
+        return sections, tbls
+
+
+
 def chunk(filename, binary=None, from_page=0, to_page=100000,
           lang="Chinese", callback=None, **kwargs):
     """
@@ -123,8 +194,22 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
     if re.search(r"\.docx$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
         sections, tbls = Docx()(filename, binary)
-        res = tokenize_table(tbls, doc, eng)
+        res = tokenize_table(tbls, doc, eng)    # just for table
+
         callback(0.8, "Finish parsing.")
+        st = timer()
+
+        chunks, images = naive_merge_docx(
+            sections, int(parser_config.get(
+                "chunk_token_num", 128)), parser_config.get(
+                "delimiter", "\n!?。；！？"))
+
+        if kwargs.get("section_only", False):
+            return chunks
+
+        res.extend(tokenize_chunks_docx(chunks, doc, eng, images))
+        cron_logger.info("naive_merge({}): {}".format(filename, timer() - st))
+        return res
 
     elif re.search(r"\.pdf$", filename, re.IGNORECASE):
         pdf_parser = Pdf(
@@ -138,32 +223,28 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         excel_parser = ExcelParser()
         sections = [(l, "") for l in excel_parser.html(binary) if l]
 
-    elif re.search(r"\.(txt|md|py|js|java|c|cpp|h|php|go|ts|sh|cs|kt)$", filename, re.IGNORECASE):
+    elif re.search(r"\.(txt|py|js|java|c|cpp|h|php|go|ts|sh|cs|kt|sql)$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
-        txt = ""
-        if binary:
-            encoding = find_codec(binary)
-            txt = binary.decode(encoding, errors="ignore")
-        else:
-            with open(filename, "r") as f:
-                while True:
-                    l = f.readline()
-                    if not l:
-                        break
-                    txt += l
-        sections = []
-        for sec in txt.split("\n"):
-            if num_tokens_from_string(sec) > 10 * parser_config.get("chunk_token_num", 128):
-                sections.append((sec[:int(len(sec)/2)], ""))
-                sections.append((sec[int(len(sec)/2):], ""))
-            else:
-                sections.append((sec, ""))
-
+        sections = TxtParser()(filename,binary,
+                               parser_config.get("chunk_token_num", 128),
+                               parser_config.get("delimiter", "\n!?;。；！？"))
+        callback(0.8, "Finish parsing.")
+    
+    elif re.search(r"\.(md|markdown)$", filename, re.IGNORECASE):
+        callback(0.1, "Start to parse.")
+        sections, tbls = Markdown(int(parser_config.get("chunk_token_num", 128)))(filename, binary)
+        res = tokenize_table(tbls, doc, eng)
         callback(0.8, "Finish parsing.")
 
     elif re.search(r"\.(htm|html)$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
         sections = HtmlParser()(filename, binary)
+        sections = [(l, "") for l in sections if l]
+        callback(0.8, "Finish parsing.")
+
+    elif re.search(r"\.json$", filename, re.IGNORECASE):
+        callback(0.1, "Start to parse.")
+        sections = JsonParser(int(parser_config.get("chunk_token_num", 128)))(binary)
         sections = [(l, "") for l in sections if l]
         callback(0.8, "Finish parsing.")
 
@@ -181,9 +262,11 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
 
     st = timer()
     chunks = naive_merge(
-        sections, parser_config.get(
-            "chunk_token_num", 128), parser_config.get(
+        sections, int(parser_config.get(
+            "chunk_token_num", 128)), parser_config.get(
             "delimiter", "\n!?。；！？"))
+    if kwargs.get("section_only", False):
+        return chunks
 
     res.extend(tokenize_chunks(chunks, doc, eng, pdf_parser))
     cron_logger.info("naive_merge({}): {}".format(filename, timer() - st))

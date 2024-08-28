@@ -1,12 +1,15 @@
 import { Authorization } from '@/constants/authorization';
+import { ResponseType } from '@/interfaces/database/base';
 import i18n from '@/locales/config';
-import authorizationUtil, { getAuthorization } from '@/utils/authorizationUtil';
+import authorizationUtil, {
+  getAuthorization,
+} from '@/utils/authorization-util';
 import { message, notification } from 'antd';
 import { history } from 'umi';
 import { RequestMethod, extend } from 'umi-request';
-import { convertTheKeysOfTheObjectToSnake } from './commonUtil';
+import { convertTheKeysOfTheObjectToSnake } from './common-util';
 
-const ABORT_REQUEST_ERR_MESSAGE = 'The user aborted a request.';
+const FAILED_TO_FETCH = 'Failed to fetch';
 
 const RetcodeMessage = {
   200: i18n.t('message.200'),
@@ -42,19 +45,16 @@ type ResultCode =
   | 503
   | 504;
 
-interface ResponseType {
-  retcode: number;
-  data: any;
-  retmsg: string;
-  status: number;
-}
 const errorHandler = (error: {
   response: Response;
   message: string;
 }): Response => {
   const { response } = error;
-  if (error.message === ABORT_REQUEST_ERR_MESSAGE) {
-    console.log('user abort  request');
+  if (error.message === FAILED_TO_FETCH) {
+    notification.error({
+      description: i18n.t('message.networkAnomalyDescription'),
+      message: i18n.t('message.networkAnomaly'),
+    });
   } else {
     if (response && response.status) {
       const errorText =
@@ -63,11 +63,6 @@ const errorHandler = (error: {
       notification.error({
         message: `${i18n.t('message.requestError')} ${status}: ${url}`,
         description: errorText,
-      });
-    } else if (!response) {
-      notification.error({
-        description: i18n.t('message.networkAnomalyDescription'),
-        message: i18n.t('message.networkAnomaly'),
       });
     }
   }
@@ -105,6 +100,7 @@ request.interceptors.response.use(async (response: any, options) => {
   if (options.responseType === 'blob') {
     return response;
   }
+
   const data: ResponseType = await response.clone().json();
 
   if (data.retcode === 401 || data.retcode === 401) {

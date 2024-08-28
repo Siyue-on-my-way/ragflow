@@ -12,43 +12,43 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-#
-import os
-from abc import ABC
+
 import requests
 
+from .modules.dataset import DataSet
 
-class RAGFLow(ABC):
-    def __init__(self, user_key, base_url):
+
+class RAGFlow:
+    def __init__(self, user_key, base_url, version='v1'):
+        """
+        api_url: http://<host_address>/api/v1
+        """
         self.user_key = user_key
-        self.base_url = base_url
+        self.api_url = f"{base_url}/api/{version}"
+        self.authorization_header = {"Authorization": "{} {}".format("Bearer",self.user_key)}
 
-    def create_dataset(self, name):
-        return name
+    def post(self, path, param):
+        res = requests.post(url=self.api_url + path, json=param, headers=self.authorization_header)
+        return res
 
-    def delete_dataset(self, name):
-        return name
+    def get(self, path, params=''):
+        res = requests.get(self.api_url + path, params=params, headers=self.authorization_header)
+        return res
 
-    def list_dataset(self):
-        endpoint = f"{self.base_url}/api/v1/dataset"
-        response = requests.get(endpoint)
-        if response.status_code == 200:
-            return response.json()['datasets']
-        else:
-            return None
+    def create_dataset(self, name:str,avatar:str="",description:str="",language:str="English",permission:str="me",
+                       document_count:int=0,chunk_count:int=0,parser_method:str="naive",
+                       parser_config:DataSet.ParserConfig=None):
+        if parser_config is None:
+            parser_config = DataSet.ParserConfig(self, {"chunk_token_count":128,"layout_recognize": True, "delimiter":"\n!?。；！？","task_page_size":12})
+        parser_config=parser_config.to_json()
+        res=self.post("/dataset/save",{"name":name,"avatar":avatar,"description":description,"language":language,"permission":permission,
+                               "doc_num": document_count,"chunk_num":chunk_count,"parser_id":parser_method,
+                               "parser_config":parser_config
+                               }
+                     )
+        res = res.json()
+        if not res.get("retmsg"):
+            return DataSet(self, res["data"])
+        raise Exception(res["retmsg"])
 
-    def get_dataset(self, dataset_id):
-        endpoint = f"{self.base_url}/api/v1/dataset/{dataset_id}"
-        response = requests.get(endpoint)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return None
 
-    def update_dataset(self, dataset_id, params):
-        endpoint = f"{self.base_url}/api/v1/dataset/{dataset_id}"
-        response = requests.put(endpoint, json=params)
-        if response.status_code == 200:
-            return True
-        else:
-            return False

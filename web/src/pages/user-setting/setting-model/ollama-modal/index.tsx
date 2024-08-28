@@ -1,4 +1,4 @@
-import { useTranslate } from '@/hooks/commonHooks';
+import { useTranslate } from '@/hooks/common-hooks';
 import { IModalProps } from '@/interfaces/common';
 import { IAddLlmRequestBody } from '@/interfaces/request/llm';
 import { Flex, Form, Input, Modal, Select, Space, Switch } from 'antd';
@@ -47,7 +47,7 @@ const OllamaModal = ({
         return (
           <Flex justify={'space-between'}>
             <a
-              href={`https://github.com/infiniflow/ragflow/blob/main/docs/guides/deploy_local_llm.md`}
+              href={`https://github.com/infiniflow/ragflow/blob/main/docs/guides/deploy_local_llm.mdx`}
               target="_blank"
               rel="noreferrer"
             >
@@ -74,6 +74,8 @@ const OllamaModal = ({
           <Select placeholder={t('modelTypeMessage')}>
             <Option value="chat">chat</Option>
             <Option value="embedding">embedding</Option>
+            <Option value="rerank">rerank</Option>
+            <Option value="image2text">image2text</Option>
           </Select>
         </Form.Item>
         <Form.Item<FieldType>
@@ -89,6 +91,13 @@ const OllamaModal = ({
           rules={[{ required: true, message: t('baseUrlNameMessage') }]}
         >
           <Input placeholder={t('baseUrlNameMessage')} />
+        </Form.Item>
+        <Form.Item<FieldType>
+          label={t('apiKey')}
+          name="api_key"
+          rules={[{ required: false, message: t('apiKeyMessage') }]}
+        >
+          <Input placeholder={t('apiKeyMessage')} />
         </Form.Item>
         <Form.Item noStyle dependencies={['model_type']}>
           {({ getFieldValue }) =>

@@ -21,6 +21,8 @@ services:
       - ./nginx/proxy.conf:/etc/nginx/proxy.conf
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - ../api:/ragflow/api
+      - ../agent:/ragflow/agent
+      - ../graphrag:/ragflow/graphrag
       - ../conf:/ragflow/conf
       - ../deepdoc:/ragflow/deepdoc
       - ../rag:/ragflow/rag

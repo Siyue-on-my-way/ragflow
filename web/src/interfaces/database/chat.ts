@@ -34,6 +34,7 @@ export interface IDialog {
   description: string;
   icon: string;
   id: string;
+  dialog_id?: string;
   kb_ids: string[];
   kb_names: string[];
   language: string;
@@ -66,6 +67,7 @@ export interface IConversation {
 export interface Message {
   content: string;
   role: MessageType;
+  doc_ids?: string[];
 }
 
 export interface IReference {
@@ -77,6 +79,7 @@ export interface IReference {
 export interface IAnswer {
   answer: string;
   reference: IReference;
+  conversationId?: string;
 }
 
 export interface Docagg {
