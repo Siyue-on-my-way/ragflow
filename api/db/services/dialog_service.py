@@ -141,7 +141,7 @@ def chat(dialog, messages, stream=True, **kwargs):
     if dialog.rerank_id:
         rerank_mdl = LLMBundle(dialog.tenant_id, LLMType.RERANK, dialog.rerank_id)
 
-    for _ in range(len(questions) // 2):
+    for _ in range((len(questions) // 2) + 1):
         questions.append(questions[-1])
     if "knowledge" not in [p["key"] for p in prompt_config["parameters"]]:
         kbinfos = {"total": 0, "chunks": [], "doc_aggs": []}

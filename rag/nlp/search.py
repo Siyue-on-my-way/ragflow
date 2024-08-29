@@ -26,7 +26,7 @@ from rag.settings import es_logger
 from rag.utils import rmSpace
 from rag.nlp import rag_tokenizer, query
 import numpy as np
-
+import jieba
 
 def index_name(uid): return f"ragflow_{uid}"
 
@@ -81,6 +81,8 @@ class Dealer:
 
     def search(self, req, idxnm, emb_mdl=None):
         qst = req.get("question", "")
+        tokens = list(jieba.cut_for_search(qst))
+        qst = " ".join(list(tokens))
         bqry, keywords = self.qryr.question(qst)
         bqry = self._add_filters(bqry, req)
         bqry.boost = 0.05
