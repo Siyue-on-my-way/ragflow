@@ -251,7 +251,7 @@ def create():
 
 
 @manager.route('/retrieval_test', methods=['POST'])
-@login_required
+# @login_required    # 取消这个接口的身份验证
 @validate_request("kb_id", "question")
 def retrieval_test():
     req = request.json
