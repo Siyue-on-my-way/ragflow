@@ -48,7 +48,8 @@ from functools import partial
 
 def generate_confirmation_token(tenent_id):
     serializer = URLSafeTimedSerializer(tenent_id)
-    return "ragflow-" + serializer.dumps(get_uuid(), salt=tenent_id)[2:34]
+    # return "ragflow-" + serializer.dumps(get_uuid(), salt=tenent_id)[2:34]
+    return "Aidex-" + serializer.dumps(get_uuid(), salt=tenent_id)[2:34]
 
 
 @manager.route('/new_token', methods=['POST'])
