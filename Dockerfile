@@ -14,8 +14,8 @@ WORKDIR /ragflow
 # ADD docker/entrypoint.sh ./entrypoint.sh
 # ADD docker/.env ./
 # ADD ./web ./web
-ADD ./agent ./agent
-ADD ./graphrag ./graphrag
+# ADD ./agent ./agent
+# ADD ./graphrag ./graphrag
 
 
 #### 由此可见， build的时候挂载是不生效的，只能拉真实存在的数据， docker-composer的挂载仅对启动服务时生效
