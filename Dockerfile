@@ -6,12 +6,12 @@ WORKDIR /ragflow
 ADD ./web ./web
 RUN cd ./web && npm i --force && npm run build
 
-ADD ./api ./api
-ADD ./conf ./conf
-ADD ./deepdoc ./deepdoc
-ADD ./rag ./rag
-ADD ./agent ./agent
-ADD ./graphrag ./graphrag
+# ADD ./api ./api
+# ADD ./conf ./conf
+# ADD ./deepdoc ./deepdoc
+# ADD ./rag ./rag
+# ADD ./agent ./agent
+# ADD ./graphrag ./graphrag
 
 ENV PYTHONPATH=/ragflow/
 ENV HF_ENDPOINT=https://hf-mirror.com
