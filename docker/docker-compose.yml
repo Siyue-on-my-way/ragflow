@@ -6,6 +6,10 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+    build:
+      context: ../
+      dockerfile: Dockerfile
+
     image: ${RAGFLOW_IMAGE}
     container_name: ragflow-server
     ports:
