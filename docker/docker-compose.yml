@@ -8,7 +8,10 @@ services:
         condition: service_healthy
     build:
       context: ../
-      dockerfile: Dockerfile
+      # ### 构建包含嵌入模型的 Docker 镜像
+      # dockerfile: Dockerfile
+      ### 构建不带嵌入模型的 Docker 镜像
+      ockerfile: Dockerfile.slim
 
     image: ${RAGFLOW_IMAGE}
     container_name: ragflow-server
