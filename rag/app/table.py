@@ -20,7 +20,8 @@ from openpyxl import load_workbook
 from dateutil.parser import parse as datetime_parse
 
 from api.db.services.knowledgebase_service import KnowledgebaseService
-from rag.nlp import rag_tokenizer, is_english, tokenize, find_codec
+from deepdoc.parser.utils import get_text
+from rag.nlp import rag_tokenizer, tokenize
 from deepdoc.parser import ExcelParser
 
 
@@ -73,7 +74,7 @@ class Excel(ExcelParser):
 def trans_datatime(s):
     try:
         return datetime_parse(s.strip()).strftime("%Y-%m-%d %H:%M:%S")
-    except Exception as e:
+    except Exception:
         pass
 
 
@@ -111,7 +112,7 @@ def column_data_type(arr):
             continue
         try:
             arr[i] = trans[ty](str(arr[i]))
-        except Exception as e:
+        except Exception:
             arr[i] = None
     # if ty == "text":
     #    if len(arr) > 128 and uni / len(arr) < 0.1:
@@ -146,17 +147,7 @@ def chunk(filename, binary=None, from_page=0, to_page=10000000000,
             callback=callback)
     elif re.search(r"\.(txt|csv)$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
-        txt = ""
-        if binary:
-            encoding = find_codec(binary)
-            txt = binary.decode(encoding, errors="ignore")
-        else:
-            with open(filename, "r") as f:
-                while True:
-                    l = f.readline()
-                    if not l:
-                        break
-                    txt += l
+        txt = get_text(filename, binary)
         lines = txt.split("\n")
         fails = []
         headers = lines[0].split(kwargs.get("delimiter", "\t"))
@@ -191,7 +182,7 @@ def chunk(filename, binary=None, from_page=0, to_page=10000000000,
         "datetime": "_dt",
         "bool": "_kwd"}
     for df in dfs:
-        for n in ["id", "_id", "index", "idx"]:
+        for n in ["id", "index", "idx"]:
             if n in df.columns:
                 del df[n]
         clmns = df.columns.values

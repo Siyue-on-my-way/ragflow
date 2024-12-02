@@ -6,6 +6,7 @@ export interface PromptConfig {
   parameters: Parameter[];
   prologue: string;
   system: string;
+  tts?: boolean;
 }
 
 export interface Parameter {
@@ -62,12 +63,16 @@ export interface IConversation {
   name: string;
   update_date: string;
   update_time: number;
+  is_new: true;
 }
 
 export interface Message {
   content: string;
   role: MessageType;
   doc_ids?: string[];
+  prompt?: string;
+  id?: string;
+  audio_binary?: string;
 }
 
 export interface IReference {
@@ -80,6 +85,9 @@ export interface IAnswer {
   answer: string;
   reference: IReference;
   conversationId?: string;
+  prompt?: string;
+  id?: string;
+  audio_binary?: string;
 }
 
 export interface Docagg {

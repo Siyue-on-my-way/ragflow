@@ -160,7 +160,9 @@ class GptV4(Base):
 
 class AzureGptV4(Base):
     def __init__(self, key, model_name, lang="Chinese", **kwargs):
-        self.client = AzureOpenAI(api_key=key, azure_endpoint=kwargs["base_url"], api_version="2024-02-01")
+        api_key = json.loads(key).get('api_key', '')
+        api_version = json.loads(key).get('api_version', '2024-02-01')
+        self.client = AzureOpenAI(api_key=api_key, azure_endpoint=kwargs["base_url"], api_version=api_version)
         self.model_name = model_name
         self.lang = lang
 
@@ -293,9 +295,12 @@ class Zhipu4V(Base):
     def describe(self, image, max_tokens=1024):
         b64 = self.image2base64(image)
 
+        prompt = self.prompt(b64)
+        prompt[0]["content"][1]["type"] = "text"
+        
         res = self.client.chat.completions.create(
             model=self.model_name,
-            messages=self.prompt(b64),
+            messages=prompt,
             max_tokens=max_tokens,
         )
         return res.choices[0].message.content.strip(), res.usage.total_tokens
@@ -446,7 +451,9 @@ class LocalAICV(GptV4):
 
 class XinferenceCV(Base):
     def __init__(self, key, model_name="", lang="Chinese", base_url=""):
-        self.client = OpenAI(api_key="xxx", base_url=base_url)
+        if base_url.split("/")[-1] != "v1":
+            base_url = os.path.join(base_url, "v1")
+        self.client = OpenAI(api_key=key, base_url=base_url)
         self.model_name = model_name
         self.lang = lang
 

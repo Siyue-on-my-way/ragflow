@@ -1,14 +1,9 @@
 import { ReactComponent as MoreModelIcon } from '@/assets/svg/more-model.svg';
-import SvgIcon from '@/components/svg-icon';
+import { LlmIcon } from '@/components/svg-icon';
 import { useSetModalState, useTranslate } from '@/hooks/common-hooks';
 import { LlmItem, useSelectLlmList } from '@/hooks/llm-hooks';
+import { CloseCircleOutlined, SettingOutlined } from '@ant-design/icons';
 import {
-  CloseCircleOutlined,
-  SettingOutlined,
-  UserOutlined,
-} from '@ant-design/icons';
-import {
-  Avatar,
   Button,
   Card,
   Col,
@@ -29,14 +24,18 @@ import SettingTitle from '../components/setting-title';
 import { isLocalLlmFactory } from '../utils';
 import TencentCloudModal from './Tencent-modal';
 import ApiKeyModal from './api-key-modal';
+import AzureOpenAIModal from './azure-openai-modal';
 import BedrockModal from './bedrock-modal';
-import { IconMap } from './constant';
 import FishAudioModal from './fish-audio-modal';
+import GoogleModal from './google-modal';
 import {
+  useHandleDeleteFactory,
   useHandleDeleteLlm,
   useSubmitApiKey,
+  useSubmitAzure,
   useSubmitBedrock,
   useSubmitFishAudio,
+  useSubmitGoogle,
   useSubmitHunyuan,
   useSubmitOllama,
   useSubmitSpark,
@@ -53,16 +52,6 @@ import SystemModelSettingModal from './system-model-setting-modal';
 import VolcEngineModal from './volcengine-modal';
 import YiyanModal from './yiyan-modal';
 
-const LlmIcon = ({ name }: { name: string }) => {
-  const icon = IconMap[name as keyof typeof IconMap];
-
-  return icon ? (
-    <SvgIcon name={`llm/${icon}`} width={48} height={48}></SvgIcon>
-  ) : (
-    <Avatar shape="square" size="large" icon={<UserOutlined />} />
-  );
-};
-
 const { Text } = Typography;
 interface IModelCardProps {
   item: LlmItem;
@@ -73,6 +62,7 @@ const ModelCard = ({ item, clickApiKey }: IModelCardProps) => {
   const { visible, switchVisible } = useSetModalState();
   const { t } = useTranslate('setting');
   const { handleDeleteLlm } = useHandleDeleteLlm(item.name);
+  const { handleDeleteFactory } = useHandleDeleteFactory(item.name);
 
   const handleApiKeyClick = () => {
     clickApiKey(item.name);
@@ -104,7 +94,9 @@ const ModelCard = ({ item, clickApiKey }: IModelCardProps) => {
                 item.name === 'XunFei Spark' ||
                 item.name === 'BaiduYiyan' ||
                 item.name === 'Fish Audio' ||
-                item.name === 'Tencent Cloud'
+                item.name === 'Tencent Cloud' ||
+                item.name === 'Google Cloud' ||
+                item.name === 'Azure OpenAI'
                   ? t('addTheModel')
                   : 'API-Key'}
                 <SettingOutlined />
@@ -114,6 +106,9 @@ const ModelCard = ({ item, clickApiKey }: IModelCardProps) => {
                   {t('showMoreModels')}
                   <MoreModelIcon />
                 </Flex>
+              </Button>
+              <Button type={'text'} onClick={handleDeleteFactory}>
+                <CloseCircleOutlined style={{ color: '#D92D20' }} />
               </Button>
             </Space>
           </Col>
@@ -187,6 +182,14 @@ const UserSettingModel = () => {
   } = useSubmitHunyuan();
 
   const {
+    GoogleAddingVisible,
+    hideGoogleAddingModal,
+    showGoogleAddingModal,
+    onGoogleAddingOk,
+    GoogleAddingLoading,
+  } = useSubmitGoogle();
+
+  const {
     TencentCloudAddingVisible,
     hideTencentCloudAddingModal,
     showTencentCloudAddingModal,
@@ -226,6 +229,14 @@ const UserSettingModel = () => {
     showBedrockAddingModal,
   } = useSubmitBedrock();
 
+  const {
+    AzureAddingVisible,
+    hideAzureAddingModal,
+    showAzureAddingModal,
+    onAzureAddingOk,
+    AzureAddingLoading,
+  } = useSubmitAzure();
+
   const ModalMap = useMemo(
     () => ({
       Bedrock: showBedrockAddingModal,
@@ -235,6 +246,8 @@ const UserSettingModel = () => {
       BaiduYiyan: showyiyanAddingModal,
       'Fish Audio': showFishAudioAddingModal,
       'Tencent Cloud': showTencentCloudAddingModal,
+      'Google Cloud': showGoogleAddingModal,
+      'Azure-OpenAI': showAzureAddingModal,
     }),
     [
       showBedrockAddingModal,
@@ -244,6 +257,8 @@ const UserSettingModel = () => {
       showSparkAddingModal,
       showyiyanAddingModal,
       showFishAudioAddingModal,
+      showGoogleAddingModal,
+      showAzureAddingModal,
     ],
   );
 
@@ -280,13 +295,20 @@ const UserSettingModel = () => {
       children: (
         <List
           grid={{
-            gutter: 24,
+            gutter: {
+              xs: 8,
+              sm: 10,
+              md: 12,
+              lg: 16,
+              xl: 20,
+              xxl: 24,
+            },
             xs: 1,
-            sm: 2,
-            md: 3,
-            lg: 4,
+            sm: 1,
+            md: 2,
+            lg: 3,
             xl: 4,
-            xxl: 10,
+            xxl: 8,
           }}
           dataSource={factoryList}
           renderItem={(item) => (
@@ -302,7 +324,11 @@ const UserSettingModel = () => {
                   </Flex>
                 </Flex>
                 <Divider className={styles.modelDivider}></Divider>
-                <Button type="link" onClick={() => handleAddModel(item.name)}>
+                <Button
+                  type="link"
+                  onClick={() => handleAddModel(item.name)}
+                  className={styles.addButton}
+                >
                   {t('addTheModel')}
                 </Button>
               </Card>
@@ -364,12 +390,19 @@ const UserSettingModel = () => {
         loading={HunyuanAddingLoading}
         llmFactory={'Tencent Hunyuan'}
       ></HunyuanModal>
+      <GoogleModal
+        visible={GoogleAddingVisible}
+        hideModal={hideGoogleAddingModal}
+        onOk={onGoogleAddingOk}
+        loading={GoogleAddingLoading}
+        llmFactory={'Google Cloud'}
+      ></GoogleModal>
       <TencentCloudModal
         visible={TencentCloudAddingVisible}
         hideModal={hideTencentCloudAddingModal}
         onOk={onTencentCloudAddingOk}
         loading={TencentCloudAddingLoading}
-        llmFactory={'Tencent TencentCloud'}
+        llmFactory={'Tencent Cloud'}
       ></TencentCloudModal>
       <SparkModal
         visible={SparkAddingVisible}
@@ -399,6 +432,13 @@ const UserSettingModel = () => {
         loading={bedrockAddingLoading}
         llmFactory={'Bedrock'}
       ></BedrockModal>
+      <AzureOpenAIModal
+        visible={AzureAddingVisible}
+        hideModal={hideAzureAddingModal}
+        onOk={onAzureAddingOk}
+        loading={AzureAddingLoading}
+        llmFactory={'Azure-OpenAI'}
+      ></AzureOpenAIModal>
     </section>
   );
 };

@@ -7,7 +7,7 @@ export const isConversationIdExist = (conversationId: string) => {
   return conversationId !== EmptyConversationId && conversationId !== '';
 };
 
-export const buildMessageUuid = (message: Message | IMessage) => {
+export const buildMessageUuid = (message: Partial<Message | IMessage>) => {
   if ('id' in message && message.id) {
     return message.role === MessageType.User
       ? `${MessageType.User}_${message.id}`
@@ -16,10 +16,23 @@ export const buildMessageUuid = (message: Message | IMessage) => {
   return uuid();
 };
 
-export const getMessagePureId = (id: string) => {
-  const strings = id.split('_');
+export const getMessagePureId = (id?: string) => {
+  const strings = id?.split('_') ?? [];
   if (strings.length > 0) {
     return strings.at(-1);
   }
   return id;
+};
+
+export const buildMessageListWithUuid = (messages?: Message[]) => {
+  return (
+    messages?.map((x: Message | IMessage) => ({
+      ...x,
+      id: buildMessageUuid(x),
+    })) ?? []
+  );
+};
+
+export const getConversationId = () => {
+  return uuid().replace(/-/g, '');
 };

@@ -27,7 +27,7 @@ from api.db.services.document_service import DocumentService
 from api.utils import current_timestamp, get_uuid
 from deepdoc.parser.excel_parser import RAGFlowExcelParser
 from rag.settings import SVR_QUEUE_NAME
-from rag.utils.minio_conn import MINIO
+from rag.utils.storage_factory import STORAGE_IMPL
 from rag.utils.redis_conn import REDIS_CONN
 
 
@@ -36,12 +36,13 @@ class TaskService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_tasks(cls, task_id):
+    def get_task(cls, task_id):
         fields = [
             cls.model.id,
             cls.model.doc_id,
             cls.model.from_page,
             cls.model.to_page,
+            cls.model.retry_count,
             Document.kb_id,
             Document.parser_id,
             Document.parser_config,
@@ -62,12 +63,23 @@ class TaskService(CommonService):
             .join(Tenant, on=(Knowledgebase.tenant_id == Tenant.id)) \
             .where(cls.model.id == task_id)
         docs = list(docs.dicts())
-        if not docs: return []
+        if not docs: return None
 
-        cls.model.update(progress_msg=cls.model.progress_msg + "\n" + "Task has been received.",
-                         progress=random.random() / 10.).where(
+        msg = "\nTask has been received."
+        prog = random.random() / 10.
+        if docs[0]["retry_count"] >= 3:
+            msg = "\nERROR: Task is abandoned after 3 times attempts."
+            prog = -1
+
+        cls.model.update(progress_msg=cls.model.progress_msg + msg,
+                         progress=prog,
+                         retry_count=docs[0]["retry_count"]+1
+                         ).where(
             cls.model.id == docs[0]["id"]).execute()
-        return docs
+
+        if docs[0]["retry_count"] >= 3: return None
+
+        return docs[0]
 
     @classmethod
     @DB.connection_context()
@@ -96,7 +108,7 @@ class TaskService(CommonService):
             task = cls.model.get_by_id(id)
             _, doc = DocumentService.get_by_id(task.doc_id)
             return doc.run == TaskStatus.CANCEL.value or doc.progress < 0
-        except Exception as e:
+        except Exception:
             pass
         return False
 
@@ -121,9 +133,8 @@ class TaskService(CommonService):
                     cls.model.id == id).execute()
 
 
-def queue_tasks(doc, bucket, name):
+def queue_tasks(doc: dict, bucket: str, name: str):
     def new_task():
-        nonlocal doc
         return {
             "id": get_uuid(),
             "doc_id": doc["id"]
@@ -131,21 +142,15 @@ def queue_tasks(doc, bucket, name):
     tsks = []
 
     if doc["type"] == FileType.PDF.value:
-        file_bin = MINIO.get(bucket, name)
+        file_bin = STORAGE_IMPL.get(bucket, name)
         do_layout = doc["parser_config"].get("layout_recognize", True)
         pages = PdfParser.total_page_number(doc["name"], file_bin)
         page_size = doc["parser_config"].get("task_page_size", 12)
         if doc["parser_id"] == "paper":
             page_size = doc["parser_config"].get("task_page_size", 22)
-        if doc["parser_id"] == "one":
-            page_size = 1000000000
-        if doc["parser_id"] == "knowledge_graph":
-            page_size = 1000000000
-        if not do_layout:
-            page_size = 1000000000
-        page_ranges = doc["parser_config"].get("pages")
-        if not page_ranges:
-            page_ranges = [(1, 100000)]
+        if doc["parser_id"] in ["one", "knowledge_graph"] or not do_layout:
+            page_size = 10 ** 9
+        page_ranges = doc["parser_config"].get("pages") or [(1, 10 ** 5)]
         for s, e in page_ranges:
             s -= 1
             s = max(0, s)
@@ -157,9 +162,8 @@ def queue_tasks(doc, bucket, name):
                 tsks.append(task)
 
     elif doc["parser_id"] == "table":
-        file_bin = MINIO.get(bucket, name)
-        rn = RAGFlowExcelParser.row_number(
-            doc["name"], file_bin)
+        file_bin = STORAGE_IMPL.get(bucket, name)
+        rn = RAGFlowExcelParser.row_number(doc["name"], file_bin)
         for i in range(0, rn, 3000):
             task = new_task()
             task["from_page"] = i

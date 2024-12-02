@@ -10,20 +10,22 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+import logging
 from tika import parser
 from io import BytesIO
 from docx import Document
 from timeit import default_timer as timer
 import re
 from deepdoc.parser.pdf_parser import PlainParser
-from rag.nlp import rag_tokenizer, naive_merge, tokenize_table, tokenize_chunks, find_codec, concat_img, naive_merge_docx, tokenize_chunks_docx
+from rag.nlp import rag_tokenizer, naive_merge, tokenize_table, tokenize_chunks, find_codec, concat_img, \
+    naive_merge_docx, tokenize_chunks_docx
 from deepdoc.parser import PdfParser, ExcelParser, DocxParser, HtmlParser, JsonParser, MarkdownParser, TxtParser
-from rag.settings import cron_logger
 from rag.utils import num_tokens_from_string
 from PIL import Image
 from functools import reduce
 from markdown import markdown
-from docx.image.exceptions import UnrecognizedImageError
+from docx.image.exceptions import UnrecognizedImageError, UnexpectedEndOfFileError, InvalidImageStreamError
+
 
 class Docx(DocxParser):
     def __init__(self):
@@ -39,12 +41,18 @@ class Docx(DocxParser):
         try:
             image_blob = related_part.image.blob
         except UnrecognizedImageError:
-            print("Unrecognized image format. Skipping image.")
+            logging.info("Unrecognized image format. Skipping image.")
+            return None
+        except UnexpectedEndOfFileError:
+            logging.info("EOF was unexpectedly encountered while reading an image stream. Skipping image.")
+            return None
+        except InvalidImageStreamError:
+            logging.info("The recognized image stream appears to be corrupted. Skipping image.")
             return None
         try:
             image = Image.open(BytesIO(image_blob)).convert('RGB')
             return image
-        except Exception as e:
+        except Exception:
             return None
 
     def __clean(self, line):
@@ -76,7 +84,7 @@ class Docx(DocxParser):
                         if last_image:
                             image_list.insert(0, last_image)
                             last_image = None
-                        lines.append((self.__clean(p.text), image_list, p.style.name))
+                        lines.append((self.__clean(p.text), image_list, p.style.name if p.style else ""))
                 else:
                     if current_image := self.get_picture(self.doc, p):
                         if lines:
@@ -93,14 +101,14 @@ class Docx(DocxParser):
 
         tbls = []
         for tb in self.doc.tables:
-            html= "<table>"
+            html = "<table>"
             for r in tb.rows:
                 html += "<tr>"
                 i = 0
                 while i < len(r.cells):
                     span = 1
                     c = r.cells[i]
-                    for j in range(i+1, len(r.cells)):
+                    for j in range(i + 1, len(r.cells)):
                         if c.text == r.cells[j].text:
                             span += 1
                             i = j
@@ -116,7 +124,8 @@ class Pdf(PdfParser):
     def __call__(self, filename, binary=None, from_page=0,
                  to_page=100000, zoomin=3, callback=None):
         start = timer()
-        callback(msg="OCR is running...")
+        first_start = start
+        callback(msg="OCR started")
         self.__images__(
             filename if not binary else binary,
             zoomin,
@@ -124,30 +133,32 @@ class Pdf(PdfParser):
             to_page,
             callback
         )
-        callback(msg="OCR finished")
-        cron_logger.info("OCR({}~{}): {}".format(from_page, to_page, timer() - start))
+        callback(msg="OCR finished ({:.2f}s)".format(timer() - start))
+        logging.info("OCR({}~{}): {:.2f}s".format(from_page, to_page, timer() - start))
 
         start = timer()
         self._layouts_rec(zoomin)
-        callback(0.63, "Layout analysis finished.")
-        self._table_transformer_job(zoomin)
-        callback(0.65, "Table analysis finished.")
-        self._text_merge()
-        callback(0.67, "Text merging finished")
-        tbls = self._extract_table_figure(True, zoomin, True, True)
-        #self._naive_vertical_merge()
-        self._concat_downward()
-        #self._filter_forpages()
+        callback(0.63, "Layout analysis ({:.2f}s)".format(timer() - start))
 
-        cron_logger.info("layouts: {}".format(timer() - start))
+        start = timer()
+        self._table_transformer_job(zoomin)
+        callback(0.65, "Table analysis ({:.2f}s)".format(timer() - start))
+
+        start = timer()
+        self._text_merge()
+        callback(0.67, "Text merged ({:.2f}s)".format(timer() - start))
+        tbls = self._extract_table_figure(True, zoomin, True, True)
+        # self._naive_vertical_merge()
+        self._concat_downward()
+        # self._filter_forpages()
+
+        logging.info("layouts cost: {}s".format(timer() - first_start))
         return [(b["text"], self._line_tag(b, zoomin))
                 for b in self.boxes], tbls
 
 
 class Markdown(MarkdownParser):
     def __call__(self, filename, binary=None):
-        txt = ""
-        tbls = []
         if binary:
             encoding = find_codec(binary)
             txt = binary.decode(encoding, errors="ignore")
@@ -159,15 +170,18 @@ class Markdown(MarkdownParser):
         tbls = []
         for sec in remainder.split("\n"):
             if num_tokens_from_string(sec) > 10 * self.chunk_token_num:
-                sections.append((sec[:int(len(sec)/2)], ""))
-                sections.append((sec[int(len(sec)/2):], ""))
+                sections.append((sec[:int(len(sec) / 2)], ""))
+                sections.append((sec[int(len(sec) / 2):], ""))
             else:
-                sections.append((sec, ""))
-        print(tables)
+                if sections and sections[-1][0].strip().find("#") == 0:
+                    sec_, _ = sections.pop(-1)
+                    sections.append((sec_ + "\n" + sec, ""))
+                else:
+                    sections.append((sec, ""))
+
         for table in tables:
             tbls.append(((None, markdown(table, extensions=['markdown.extensions.tables'])), ""))
         return sections, tbls
-
 
 
 def chunk(filename, binary=None, from_page=0, to_page=100000,
@@ -179,7 +193,7 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         Next, these successive pieces are merge into chunks whose token number is no more than 'Max token number'.
     """
 
-    eng = lang.lower() == "english"  # is_english(cks)
+    is_english = lang.lower() == "english"  # is_english(cks)
     parser_config = kwargs.get(
         "parser_config", {
             "chunk_token_num": 128, "delimiter": "\n!?。；！？", "layout_recognize": True})
@@ -190,11 +204,10 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
     res = []
     pdf_parser = None
-    sections = []
     if re.search(r"\.docx$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
-        sections, tbls = Docx()(filename, binary)
-        res = tokenize_table(tbls, doc, eng)    # just for table
+        sections, tables = Docx()(filename, binary)
+        res = tokenize_table(tables, doc, is_english)  # just for table
 
         callback(0.8, "Finish parsing.")
         st = timer()
@@ -207,54 +220,60 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         if kwargs.get("section_only", False):
             return chunks
 
-        res.extend(tokenize_chunks_docx(chunks, doc, eng, images))
-        cron_logger.info("naive_merge({}): {}".format(filename, timer() - st))
+        res.extend(tokenize_chunks_docx(chunks, doc, is_english, images))
+        logging.info("naive_merge({}): {}".format(filename, timer() - st))
         return res
 
     elif re.search(r"\.pdf$", filename, re.IGNORECASE):
-        pdf_parser = Pdf(
-        ) if parser_config.get("layout_recognize", True) else PlainParser()
-        sections, tbls = pdf_parser(filename if not binary else binary,
-                                    from_page=from_page, to_page=to_page, callback=callback)
-        res = tokenize_table(tbls, doc, eng)
+        pdf_parser = Pdf() if parser_config.get("layout_recognize", True) else PlainParser()
+        sections, tables = pdf_parser(filename if not binary else binary, from_page=from_page, to_page=to_page, callback=callback)
+        res = tokenize_table(tables, doc, is_english)
 
     elif re.search(r"\.xlsx?$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
         excel_parser = ExcelParser()
-        sections = [(l, "") for l in excel_parser.html(binary) if l]
+        if parser_config.get("html4excel"):
+            sections = [(_, "") for _ in excel_parser.html(binary, 12) if _]
+        else:
+            sections = [(_, "") for _ in excel_parser(binary) if _]
 
     elif re.search(r"\.(txt|py|js|java|c|cpp|h|php|go|ts|sh|cs|kt|sql)$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
-        sections = TxtParser()(filename,binary,
+        sections = TxtParser()(filename, binary,
                                parser_config.get("chunk_token_num", 128),
                                parser_config.get("delimiter", "\n!?;。；！？"))
         callback(0.8, "Finish parsing.")
-    
+
     elif re.search(r"\.(md|markdown)$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
-        sections, tbls = Markdown(int(parser_config.get("chunk_token_num", 128)))(filename, binary)
-        res = tokenize_table(tbls, doc, eng)
+        sections, tables = Markdown(int(parser_config.get("chunk_token_num", 128)))(filename, binary)
+        res = tokenize_table(tables, doc, is_english)
         callback(0.8, "Finish parsing.")
 
     elif re.search(r"\.(htm|html)$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
         sections = HtmlParser()(filename, binary)
-        sections = [(l, "") for l in sections if l]
+        sections = [(_, "") for _ in sections if _]
         callback(0.8, "Finish parsing.")
 
     elif re.search(r"\.json$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
         sections = JsonParser(int(parser_config.get("chunk_token_num", 128)))(binary)
-        sections = [(l, "") for l in sections if l]
+        sections = [(_, "") for _ in sections if _]
         callback(0.8, "Finish parsing.")
 
     elif re.search(r"\.doc$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
         binary = BytesIO(binary)
         doc_parsed = parser.from_buffer(binary)
-        sections = doc_parsed['content'].split('\n')
-        sections = [(l, "") for l in sections if l]
-        callback(0.8, "Finish parsing.")
+        if doc_parsed.get('content', None) is not None:
+            sections = doc_parsed['content'].split('\n')
+            sections = [(_, "") for _ in sections if _]
+            callback(0.8, "Finish parsing.")
+        else:
+            callback(0.8, f"tika.parser got empty content from {filename}.")
+            logging.warning(f"tika.parser got empty content from {filename}.")
+            return []
 
     else:
         raise NotImplementedError(
@@ -268,15 +287,17 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
     if kwargs.get("section_only", False):
         return chunks
 
-    res.extend(tokenize_chunks(chunks, doc, eng, pdf_parser))
-    cron_logger.info("naive_merge({}): {}".format(filename, timer() - st))
+    res.extend(tokenize_chunks(chunks, doc, is_english, pdf_parser))
+    logging.info("naive_merge({}): {}".format(filename, timer() - st))
     return res
 
 
 if __name__ == "__main__":
     import sys
 
+
     def dummy(prog=None, msg=""):
         pass
+
 
     chunk(sys.argv[1], from_page=0, to_page=10, callback=dummy)

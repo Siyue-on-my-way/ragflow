@@ -1,4 +1,0 @@
-
-
-API_KEY = 'ragflow-k0N2I1MzQwNjNhMzExZWY5ODg1MDI0Mm'
-HOST_ADDRESS = 'http://127.0.0.1:9380'

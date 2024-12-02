@@ -13,18 +13,18 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
-import re
+import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 import json
 from functools import reduce
-from typing import List
 import networkx as nx
 from api.db import LLMType
 from api.db.services.llm_service import LLMBundle
 from api.db.services.user_service import TenantService
 from graphrag.community_reports_extractor import CommunityReportsExtractor
 from graphrag.entity_resolution import EntityResolution
-from graphrag.graph_extractor import GraphExtractor
+from graphrag.graph_extractor import GraphExtractor, DEFAULT_ENTITY_TYPES
 from graphrag.mind_map_extractor import MindMapExtractor
 from rag.nlp import rag_tokenizer
 from rag.utils import num_tokens_from_string
@@ -52,7 +52,7 @@ def graph_merge(g1, g2):
     return g
 
 
-def build_knowlege_graph_chunks(tenant_id: str, chunks: List[str], callback, entity_types=["organization", "person", "location", "event", "time"]):
+def build_knowledge_graph_chunks(tenant_id: str, chunks: list[str], callback, entity_types=DEFAULT_ENTITY_TYPES):
     _, tenant = TenantService.get_by_id(tenant_id)
     llm_bdl = LLMBundle(tenant_id, LLMType.CHAT, tenant.llm_id)
     ext = GraphExtractor(llm_bdl)
@@ -64,26 +64,27 @@ def build_knowlege_graph_chunks(tenant_id: str, chunks: List[str], callback, ent
     BATCH_SIZE=4
     texts, graphs = [], []
     cnt = 0
-    threads = []
-    exe = ThreadPoolExecutor(max_workers=50)
-    for i in range(len(chunks)):
-        tkn_cnt = num_tokens_from_string(chunks[i])
-        if cnt+tkn_cnt >= left_token_count and texts:
+    max_workers = int(os.environ.get('GRAPH_EXTRACTOR_MAX_WORKERS', 50))
+    with ThreadPoolExecutor(max_workers=max_workers) as exe:
+        threads = []
+        for i in range(len(chunks)):
+            tkn_cnt = num_tokens_from_string(chunks[i])
+            if cnt+tkn_cnt >= left_token_count and texts:
+                for b in range(0, len(texts), BATCH_SIZE):
+                    threads.append(exe.submit(ext, ["\n".join(texts[b:b+BATCH_SIZE])], {"entity_types": entity_types}, callback))
+                texts = []
+                cnt = 0
+            texts.append(chunks[i])
+            cnt += tkn_cnt
+        if texts:
             for b in range(0, len(texts), BATCH_SIZE):
                 threads.append(exe.submit(ext, ["\n".join(texts[b:b+BATCH_SIZE])], {"entity_types": entity_types}, callback))
-            texts = []
-            cnt = 0
-        texts.append(chunks[i])
-        cnt += tkn_cnt
-    if texts:
-        for b in range(0, len(texts), BATCH_SIZE):
-            threads.append(exe.submit(ext, ["\n".join(texts[b:b+BATCH_SIZE])], {"entity_types": entity_types}, callback))
 
-    callback(0.5, "Extracting entities.")
-    graphs = []
-    for i, _ in enumerate(threads):
-        graphs.append(_.result().output)
-        callback(0.5 + 0.1*i/len(threads), f"Entities extraction progress ... {i+1}/{len(threads)}")
+        callback(0.5, "Extracting entities.")
+        graphs = []
+        for i, _ in enumerate(threads):
+            graphs.append(_.result().output)
+            callback(0.5 + 0.1*i/len(threads), f"Entities extraction progress ... {i+1}/{len(threads)}")
 
     graph = reduce(graph_merge, graphs) if graphs else nx.Graph()
     er = EntityResolution(llm_bdl)
@@ -93,7 +94,7 @@ def build_knowlege_graph_chunks(tenant_id: str, chunks: List[str], callback, ent
     chunks = []
     for n, attr in graph.nodes(data=True):
         if attr.get("rank", 0) == 0:
-            print(f"Ignore entity: {n}")
+            logging.debug(f"Ignore entity: {n}")
             continue
         chunk = {
             "name_kwd": n,
@@ -135,7 +136,7 @@ def build_knowlege_graph_chunks(tenant_id: str, chunks: List[str], callback, ent
     mg = mindmap(_chunks).output
     if not len(mg.keys()): return chunks
 
-    print(json.dumps(mg, ensure_ascii=False, indent=2))
+    logging.debug(json.dumps(mg, ensure_ascii=False, indent=2))
     chunks.append(
         {
             "content_with_weight": json.dumps(mg, ensure_ascii=False, indent=2),

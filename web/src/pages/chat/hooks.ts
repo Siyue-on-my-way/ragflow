@@ -1,4 +1,4 @@
-import { MessageType } from '@/constants/chat';
+import { ChatSearchParams, MessageType } from '@/constants/chat';
 import { fileIconMap } from '@/constants/common';
 import {
   useFetchManualConversation,
@@ -17,35 +17,73 @@ import {
   useShowDeleteConfirm,
   useTranslate,
 } from '@/hooks/common-hooks';
-import { useSendMessageWithSse } from '@/hooks/logic-hooks';
 import {
-  IAnswer,
-  IConversation,
-  IDialog,
-  Message,
-} from '@/interfaces/database/chat';
-import { IChunk } from '@/interfaces/database/knowledge';
+  useRegenerateMessage,
+  useSelectDerivedMessages,
+  useSendMessageWithSse,
+} from '@/hooks/logic-hooks';
+import { IConversation, IDialog, Message } from '@/interfaces/database/chat';
 import { getFileExtension } from '@/utils';
+import api from '@/utils/api';
+import { getConversationId } from '@/utils/chat';
 import { useMutationState } from '@tanstack/react-query';
 import { get } from 'lodash';
-import omit from 'lodash/omit';
 import trim from 'lodash/trim';
 import {
   ChangeEventHandler,
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import { useSearchParams } from 'umi';
 import { v4 as uuid } from 'uuid';
-import { ChatSearchParams } from './constants';
 import {
   IClientConversation,
   IMessage,
   VariableTableDataType,
 } from './interface';
+
+export const useSetChatRouteParams = () => {
+  const [currentQueryParameters, setSearchParams] = useSearchParams();
+  const newQueryParameters: URLSearchParams = useMemo(
+    () => new URLSearchParams(currentQueryParameters.toString()),
+    [currentQueryParameters],
+  );
+
+  const setConversationIsNew = useCallback(
+    (value: string) => {
+      newQueryParameters.set(ChatSearchParams.isNew, value);
+      setSearchParams(newQueryParameters);
+    },
+    [newQueryParameters, setSearchParams],
+  );
+
+  const getConversationIsNew = useCallback(() => {
+    return newQueryParameters.get(ChatSearchParams.isNew);
+  }, [newQueryParameters]);
+
+  return { setConversationIsNew, getConversationIsNew };
+};
+
+export const useSetNewConversationRouteParams = () => {
+  const [currentQueryParameters, setSearchParams] = useSearchParams();
+  const newQueryParameters: URLSearchParams = useMemo(
+    () => new URLSearchParams(currentQueryParameters.toString()),
+    [currentQueryParameters],
+  );
+
+  const setNewConversationRouteParams = useCallback(
+    (conversationId: string, isNew: string) => {
+      newQueryParameters.set(ChatSearchParams.ConversationId, conversationId);
+      newQueryParameters.set(ChatSearchParams.isNew, isNew);
+      setSearchParams(newQueryParameters);
+    },
+    [newQueryParameters, setSearchParams],
+  );
+
+  return { setNewConversationRouteParams };
+};
 
 export const useSelectCurrentDialog = () => {
   const data = useMutationState({
@@ -138,7 +176,7 @@ export const useEditDialog = () => {
     async (dialogId?: string) => {
       if (dialogId) {
         const ret = await fetchDialog(dialogId);
-        if (ret.retcode === 0) {
+        if (ret.code === 0) {
           setDialog(ret.data);
         }
       }
@@ -172,22 +210,26 @@ export const useSelectDerivedConversationList = () => {
   const { data: conversationList, loading } = useFetchNextConversationList();
   const { dialogId } = useGetChatSearchParams();
   const prologue = currentDialog?.prompt_config?.prologue ?? '';
+  const { setNewConversationRouteParams } = useSetNewConversationRouteParams();
 
   const addTemporaryConversation = useCallback(() => {
+    const conversationId = getConversationId();
     setList((pre) => {
       if (dialogId) {
+        setNewConversationRouteParams(conversationId, 'true');
         const nextList = [
           {
-            id: '',
+            id: conversationId,
             name: t('newConversation'),
             dialog_id: dialogId,
+            is_new: true,
             message: [
               {
                 content: prologue,
                 role: MessageType.Assistant,
               },
             ],
-          } as IConversation,
+          } as any,
           ...conversationList,
         ];
         return nextList;
@@ -195,31 +237,15 @@ export const useSelectDerivedConversationList = () => {
 
       return pre;
     });
-  }, [conversationList, dialogId, prologue, t]);
+  }, [conversationList, dialogId, prologue, t, setNewConversationRouteParams]);
+
+  // When you first enter the page, select the top conversation card
 
   useEffect(() => {
-    addTemporaryConversation();
-  }, [addTemporaryConversation]);
+    setList([...conversationList]);
+  }, [conversationList]);
 
   return { list, addTemporaryConversation, loading };
-};
-
-export const useClickConversationCard = () => {
-  const [currentQueryParameters, setSearchParams] = useSearchParams();
-  const newQueryParameters: URLSearchParams = useMemo(
-    () => new URLSearchParams(currentQueryParameters.toString()),
-    [currentQueryParameters],
-  );
-
-  const handleClickConversation = useCallback(
-    (conversationId: string) => {
-      newQueryParameters.set(ChatSearchParams.ConversationId, conversationId);
-      setSearchParams(newQueryParameters);
-    },
-    [newQueryParameters, setSearchParams],
-  );
-
-  return { handleClickConversation };
 };
 
 export const useSetConversation = () => {
@@ -227,10 +253,16 @@ export const useSetConversation = () => {
   const { updateConversation } = useUpdateNextConversation();
 
   const setConversation = useCallback(
-    (message: string) => {
-      return updateConversation({
+    async (
+      message: string,
+      isNew: boolean = false,
+      conversationId?: string,
+    ) => {
+      const data = await updateConversation({
         dialog_id: dialogId,
         name: message,
+        is_new: isNew,
+        conversation_id: conversationId,
         message: [
           {
             role: MessageType.Assistant,
@@ -238,6 +270,8 @@ export const useSetConversation = () => {
           },
         ],
       });
+
+      return data;
     },
     [updateConversation, dialogId],
   );
@@ -245,72 +279,23 @@ export const useSetConversation = () => {
   return { setConversation };
 };
 
-export const useSelectCurrentConversation = () => {
-  const [currentConversation, setCurrentConversation] =
-    useState<IClientConversation>({} as IClientConversation);
+export const useSelectNextMessages = () => {
+  const {
+    ref,
+    setDerivedMessages,
+    derivedMessages,
+    addNewestAnswer,
+    addNewestQuestion,
+    removeLatestMessage,
+    removeMessageById,
+    removeMessagesAfterCurrentMessage,
+  } = useSelectDerivedMessages();
   const { data: conversation, loading } = useFetchNextConversation();
   const { data: dialog } = useFetchNextDialog();
-  const { conversationId, dialogId } = useGetChatSearchParams();
-
-  const addNewestConversation = useCallback(
-    (message: Partial<Message>, answer: string = '') => {
-      setCurrentConversation((pre) => {
-        return {
-          ...pre,
-          message: [
-            ...pre.message,
-            {
-              role: MessageType.User,
-              content: message.content,
-              doc_ids: message.doc_ids,
-              id: uuid(),
-            } as IMessage,
-            {
-              role: MessageType.Assistant,
-              content: answer,
-              id: uuid(),
-              reference: {},
-            } as IMessage,
-          ],
-        };
-      });
-    },
-    [],
-  );
-
-  const addNewestAnswer = useCallback((answer: IAnswer) => {
-    setCurrentConversation((pre) => {
-      const latestMessage = pre.message?.at(-1);
-
-      if (latestMessage) {
-        return {
-          ...pre,
-          message: [
-            ...pre.message.slice(0, -1),
-            {
-              ...latestMessage,
-              content: answer.answer,
-              reference: answer.reference,
-            } as IMessage,
-          ],
-        };
-      }
-      return pre;
-    });
-  }, []);
-
-  const removeLatestMessage = useCallback(() => {
-    setCurrentConversation((pre) => {
-      const nextMessages = pre.message?.slice(0, -2) ?? [];
-      return {
-        ...pre,
-        message: nextMessages,
-      };
-    });
-  }, []);
+  const { conversationId, dialogId, isNew } = useGetChatSearchParams();
 
   const addPrologue = useCallback(() => {
-    if (dialogId !== '' && conversationId === '') {
+    if (dialogId !== '' && isNew === 'true') {
       const prologue = dialog.prompt_config?.prologue;
 
       const nextMessage = {
@@ -319,69 +304,37 @@ export const useSelectCurrentConversation = () => {
         id: uuid(),
       } as IMessage;
 
-      setCurrentConversation({
-        id: '',
-        dialog_id: dialogId,
-        reference: [],
-        message: [nextMessage],
-      } as any);
+      setDerivedMessages([nextMessage]);
     }
-  }, [conversationId, dialog, dialogId]);
+  }, [isNew, dialog, dialogId, setDerivedMessages]);
 
   useEffect(() => {
     addPrologue();
   }, [addPrologue]);
 
   useEffect(() => {
-    if (conversationId) {
-      setCurrentConversation(conversation);
+    if (
+      conversationId &&
+      isNew !== 'true' &&
+      conversation.message?.length > 0
+    ) {
+      setDerivedMessages(conversation.message);
     }
-  }, [conversation, conversationId]);
+
+    if (!conversationId) {
+      setDerivedMessages([]);
+    }
+  }, [conversation.message, conversationId, setDerivedMessages, isNew]);
 
   return {
-    currentConversation,
-    addNewestConversation,
-    removeLatestMessage,
-    addNewestAnswer,
-    loading,
-  };
-};
-
-export const useScrollToBottom = (currentConversation: IClientConversation) => {
-  const ref = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = useCallback(() => {
-    if (currentConversation.id) {
-      ref.current?.scrollIntoView({ behavior: 'instant' });
-    }
-  }, [currentConversation]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [scrollToBottom]);
-
-  return ref;
-};
-
-export const useFetchConversationOnMount = () => {
-  const { conversationId } = useGetChatSearchParams();
-  const {
-    currentConversation,
-    addNewestConversation,
-    removeLatestMessage,
-    addNewestAnswer,
-    loading,
-  } = useSelectCurrentConversation();
-  const ref = useScrollToBottom(currentConversation);
-
-  return {
-    currentConversation,
-    addNewestConversation,
     ref,
-    removeLatestMessage,
-    addNewestAnswer,
-    conversationId,
+    derivedMessages,
     loading,
+    addNewestAnswer,
+    addNewestQuestion,
+    removeLatestMessage,
+    removeMessageById,
+    removeMessagesAfterCurrentMessage,
   };
 };
 
@@ -401,100 +354,129 @@ export const useHandleMessageInputChange = () => {
   };
 };
 
-export const useSendMessage = (
-  conversation: IClientConversation,
-  addNewestConversation: (message: Partial<Message>, answer?: string) => void,
-  removeLatestMessage: () => void,
-  addNewestAnswer: (answer: IAnswer) => void,
-) => {
+export const useSendNextMessage = (controller: AbortController) => {
   const { setConversation } = useSetConversation();
-  const { conversationId } = useGetChatSearchParams();
+  const { conversationId, isNew } = useGetChatSearchParams();
   const { handleInputChange, value, setValue } = useHandleMessageInputChange();
 
-  const { handleClickConversation } = useClickConversationCard();
-  const { send, answer, done, setDone } = useSendMessageWithSse();
+  const { send, answer, done } = useSendMessageWithSse(
+    api.completeConversation,
+  );
+  const {
+    ref,
+    derivedMessages,
+    loading,
+    addNewestAnswer,
+    addNewestQuestion,
+    removeLatestMessage,
+    removeMessageById,
+    removeMessagesAfterCurrentMessage,
+  } = useSelectNextMessages();
+  const { setConversationIsNew, getConversationIsNew } =
+    useSetChatRouteParams();
 
   const sendMessage = useCallback(
-    async (message: string, documentIds: string[], id?: string) => {
-      const res = await send({
-        conversation_id: id ?? conversationId,
-        messages: [
-          ...(conversation?.message ?? []).map((x: IMessage) => omit(x, 'id')),
-          {
-            id: uuid(),
-            role: MessageType.User,
-            content: message,
-            doc_ids: documentIds,
-          },
-        ],
-      });
+    async ({
+      message,
+      currentConversationId,
+      messages,
+    }: {
+      message: Message;
+      currentConversationId?: string;
+      messages?: Message[];
+    }) => {
+      const res = await send(
+        {
+          conversation_id: currentConversationId ?? conversationId,
+          messages: [...(messages ?? derivedMessages ?? []), message],
+        },
+        controller,
+      );
 
-      if (res && (res?.response.status !== 200 || res?.data?.retcode !== 0)) {
+      if (res && (res?.response.status !== 200 || res?.data?.code !== 0)) {
         // cancel loading
-        setValue(message);
+        setValue(message.content);
         console.info('removeLatestMessage111');
         removeLatestMessage();
-      } else {
-        if (id) {
-          console.info('111');
-          // new conversation
-          handleClickConversation(id);
-        } else {
-          console.info('222');
-          // fetchConversation(conversationId);
-        }
       }
     },
     [
-      conversation?.message,
+      derivedMessages,
       conversationId,
-      handleClickConversation,
       removeLatestMessage,
       setValue,
       send,
+      controller,
     ],
   );
 
   const handleSendMessage = useCallback(
-    async (message: string, documentIds: string[]) => {
-      if (conversationId !== '') {
-        sendMessage(message, documentIds);
+    async (message: Message) => {
+      const isNew = getConversationIsNew();
+      if (isNew !== 'true') {
+        sendMessage({ message });
       } else {
-        const data = await setConversation(message);
-        if (data.retcode === 0) {
+        const data = await setConversation(
+          message.content,
+          true,
+          conversationId,
+        );
+        if (data.code === 0) {
+          setConversationIsNew('');
           const id = data.data.id;
-          sendMessage(message, documentIds, id);
+          // currentConversationIdRef.current = id;
+          sendMessage({
+            message,
+            currentConversationId: id,
+            messages: data.data.message,
+          });
         }
       }
     },
-    [conversationId, setConversation, sendMessage],
+    [
+      setConversation,
+      sendMessage,
+      setConversationIsNew,
+      getConversationIsNew,
+      conversationId,
+    ],
   );
+
+  const { regenerateMessage } = useRegenerateMessage({
+    removeMessagesAfterCurrentMessage,
+    sendMessage,
+    messages: derivedMessages,
+  });
 
   useEffect(() => {
     //  #1289
-    if (answer.answer && answer?.conversationId === conversationId) {
+    if (answer.answer && conversationId && isNew !== 'true') {
       addNewestAnswer(answer);
     }
-  }, [answer, addNewestAnswer, conversationId]);
-
-  useEffect(() => {
-    // #1289 switch to another conversion window when the last conversion answer doesn't finish.
-    if (conversationId) {
-      setDone(true);
-    }
-  }, [setDone, conversationId]);
+  }, [answer, addNewestAnswer, conversationId, isNew]);
 
   const handlePressEnter = useCallback(
     (documentIds: string[]) => {
       if (trim(value) === '') return;
+      const id = uuid();
 
-      addNewestConversation({ content: value, doc_ids: documentIds });
+      addNewestQuestion({
+        content: value,
+        doc_ids: documentIds,
+        id,
+        role: MessageType.User,
+      });
       if (done) {
         setValue('');
-        handleSendMessage(value.trim(), documentIds);
+        handleSendMessage({
+          id,
+          content: value.trim(),
+          role: MessageType.User,
+          doc_ids: documentIds,
+        });
       }
     },
-    [addNewestConversation, handleSendMessage, done, setValue, value],
+    [addNewestQuestion, handleSendMessage, done, setValue, value],
   );
 
   return {
@@ -502,7 +484,12 @@ export const useSendMessage = (
     handleInputChange,
     value,
     setValue,
-    loading: !done,
+    regenerateMessage,
+    sendLoading: !done,
+    loading,
+    ref,
+    derivedMessages,
+    removeMessageById,
   };
 };
 
@@ -517,15 +504,12 @@ export const useGetFileIcon = () => {
 };
 
 export const useDeleteConversation = () => {
-  const { handleClickConversation } = useClickConversationCard();
   const showDeleteConfirm = useShowDeleteConfirm();
   const { removeConversation } = useRemoveNextConversation();
 
   const deleteConversation = (conversationIds: Array<string>) => async () => {
     const ret = await removeConversation(conversationIds);
-    if (ret === 0) {
-      handleClickConversation('');
-    }
+
     return ret;
   };
 
@@ -554,9 +538,10 @@ export const useRenameConversation = () => {
         ...conversation,
         conversation_id: conversation.id,
         name,
+        is_new: false,
       });
 
-      if (ret.retcode === 0) {
+      if (ret.code === 0) {
         hideConversationRenameModal();
       }
     },
@@ -566,7 +551,7 @@ export const useRenameConversation = () => {
   const handleShowConversationRenameModal = useCallback(
     async (conversationId: string) => {
       const ret = await fetchConversation(conversationId);
-      if (ret.retcode === 0) {
+      if (ret.code === 0) {
         setConversation(ret.data);
       }
       showConversationRenameModal();
@@ -584,34 +569,10 @@ export const useRenameConversation = () => {
   };
 };
 
-export const useClickDrawer = () => {
-  const { visible, showModal, hideModal } = useSetModalState();
-  const [selectedChunk, setSelectedChunk] = useState<IChunk>({} as IChunk);
-  const [documentId, setDocumentId] = useState<string>('');
-
-  const clickDocumentButton = useCallback(
-    (documentId: string, chunk: IChunk) => {
-      showModal();
-      setSelectedChunk(chunk);
-      setDocumentId(documentId);
-    },
-    [showModal],
-  );
-
-  return {
-    clickDocumentButton,
-    visible,
-    showModal,
-    hideModal,
-    selectedChunk,
-    documentId,
-  };
-};
-
 export const useGetSendButtonDisabled = () => {
   const { dialogId, conversationId } = useGetChatSearchParams();
 
-  return dialogId === '' && conversationId === '';
+  return dialogId === '' || conversationId === '';
 };
 
 export const useSendButtonDisabled = (value: string) => {
@@ -621,19 +582,18 @@ export const useSendButtonDisabled = (value: string) => {
 export const useCreateConversationBeforeUploadDocument = () => {
   const { setConversation } = useSetConversation();
   const { dialogId } = useGetChatSearchParams();
-
-  const { handleClickConversation } = useClickConversationCard();
+  const { getConversationIsNew } = useSetChatRouteParams();
 
   const createConversationBeforeUploadDocument = useCallback(
     async (message: string) => {
-      const data = await setConversation(message);
-      if (data.retcode === 0) {
-        const id = data.data.id;
-        handleClickConversation(id);
+      const isNew = getConversationIsNew();
+      if (isNew === 'true') {
+        const data = await setConversation(message, true);
+
+        return data;
       }
-      return data;
     },
-    [setConversation, handleClickConversation],
+    [setConversation, getConversationIsNew],
   );
 
   return {

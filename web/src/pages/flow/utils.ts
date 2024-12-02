@@ -119,30 +119,34 @@ const buildOperatorParams = (operatorName: string) =>
 export const buildDslComponentsByGraph = (
   nodes: Node<NodeData>[],
   edges: Edge[],
+  oldDslComponents: DSLComponents,
 ): DSLComponents => {
   const components: DSLComponents = {};
 
-  nodes.forEach((x) => {
-    const id = x.id;
-    const operatorName = x.data.label;
-    components[id] = {
-      obj: {
-        component_name: operatorName,
-        params:
-          buildOperatorParams(operatorName)(
-            x.data.form as Record<string, unknown>,
-          ) ?? {},
-      },
-      downstream: buildComponentDownstreamOrUpstream(edges, id, true),
-      upstream: buildComponentDownstreamOrUpstream(edges, id, false),
-    };
-  });
+  nodes
+    .filter((x) => x.data.label !== Operator.Note)
+    .forEach((x) => {
+      const id = x.id;
+      const operatorName = x.data.label;
+      components[id] = {
+        obj: {
+          ...(oldDslComponents[id]?.obj ?? {}),
+          component_name: operatorName,
+          params:
+            buildOperatorParams(operatorName)(
+              x.data.form as Record<string, unknown>,
+            ) ?? {},
+        },
+        downstream: buildComponentDownstreamOrUpstream(edges, id, true),
+        upstream: buildComponentDownstreamOrUpstream(edges, id, false),
+      };
+    });
 
   return components;
 };
 
 export const receiveMessageError = (res: any) =>
-  res && (res?.response.status !== 200 || res?.data?.retcode !== 0);
+  res && (res?.response.status !== 200 || res?.data?.code !== 0);
 
 // Replace the id in the object with text
 export const replaceIdWithText = (
@@ -182,11 +186,12 @@ export const buildNewPositionMap = (
   const intersectionKeys = intersectionWith(
     previousKeys,
     currentKeys,
-    (categoryDataKey, positionMapKey) => categoryDataKey === positionMapKey,
+    (categoryDataKey: string, positionMapKey: string) =>
+      categoryDataKey === positionMapKey,
   );
   // difference set
   const currentDifferenceKeys = currentKeys.filter(
-    (x) => !intersectionKeys.some((y) => y === x),
+    (x) => !intersectionKeys.some((y: string) => y === x),
   );
   const newPositionMap = currentDifferenceKeys.reduce<
     Record<string, IPosition>
@@ -233,4 +238,88 @@ export const getOtherFieldValues = (
 
 export const generateSwitchHandleText = (idx: number) => {
   return `Case ${idx + 1}`;
+};
+
+export const getNodeDragHandle = (nodeType?: string) => {
+  return nodeType === Operator.Note ? '.note-drag-handle' : undefined;
+};
+
+const splitName = (name: string) => {
+  const names = name.split('_');
+  const type = names.at(0);
+  const index = Number(names.at(-1));
+
+  return { type, index };
+};
+
+export const generateNodeNamesWithIncreasingIndex = (
+  name: string,
+  nodes: Node[],
+) => {
+  const templateNameList = nodes
+    .filter((x) => {
+      const temporaryName = x.data.name;
+
+      const { type, index } = splitName(temporaryName);
+
+      return (
+        temporaryName.match(/_/g)?.length === 1 &&
+        type === name &&
+        !isNaN(index)
+      );
+    })
+    .map((x) => {
+      const temporaryName = x.data.name;
+      const { index } = splitName(temporaryName);
+
+      return {
+        idx: index,
+        name: temporaryName,
+      };
+    })
+    .sort((a, b) => a.idx - b.idx);
+
+  let index: number = 0;
+  for (let i = 0; i < templateNameList.length; i++) {
+    const idx = templateNameList[i]?.idx;
+    const nextIdx = templateNameList[i + 1]?.idx;
+    if (idx + 1 !== nextIdx) {
+      index = idx + 1;
+      break;
+    }
+  }
+
+  return `${name}_${index}`;
+};
+
+export const duplicateNodeForm = (nodeData?: NodeData) => {
+  const form: Record<string, any> = { ...(nodeData?.form ?? {}) };
+
+  // Delete the downstream node corresponding to the to field of the Categorize operator
+  if (nodeData?.label === Operator.Categorize) {
+    form.category_description = Object.keys(form.category_description).reduce<
+      Record<string, Record<string, any>>
+    >((pre, cur) => {
+      pre[cur] = {
+        ...form.category_description[cur],
+        to: undefined,
+      };
+      return pre;
+    }, {});
+  }
+
+  // Delete the downstream nodes corresponding to the yes and no fields of the Relevant operator
+  if (nodeData?.label === Operator.Relevant) {
+    form.yes = undefined;
+    form.no = undefined;
+  }
+
+  return {
+    ...(nodeData ?? {}),
+    form,
+  };
+};
+
+export const getDrawerWidth = () => {
+  return window.innerWidth > 1278 ? '40%' : 470;
 };

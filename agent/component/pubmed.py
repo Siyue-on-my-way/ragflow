@@ -13,11 +13,12 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+import logging
 from abc import ABC
 from Bio import Entrez
+import re
 import pandas as pd
 import xml.etree.ElementTree as ET
-from agent.settings import DEBUG
 from agent.component.base import ComponentBase, ComponentParamBase
 
 
@@ -47,12 +48,15 @@ class PubMed(ComponentBase, ABC):
         try:
             Entrez.email = self._param.email
             pubmedids = Entrez.read(Entrez.esearch(db='pubmed', retmax=self._param.top_n, term=ans))['IdList']
-            pubmedcnt = ET.fromstring(
-                Entrez.efetch(db='pubmed', id=",".join(pubmedids), retmode="xml").read().decode("utf-8"))
+            pubmedcnt = ET.fromstring(re.sub(r'<(/?)b>|<(/?)i>', '', Entrez.efetch(db='pubmed', id=",".join(pubmedids),
+                                                                                   retmode="xml").read().decode(
+                "utf-8")))
             pubmed_res = [{"content": 'Title:' + child.find("MedlineCitation").find("Article").find(
                 "ArticleTitle").text + '\nUrl:<a href=" https://pubmed.ncbi.nlm.nih.gov/' + child.find(
-                "MedlineCitation").find("PMID").text + '">' + '</a>\n' + 'Abstract:' + child.find(
-                "MedlineCitation").find("Article").find("Abstract").find("AbstractText").text} for child in
+                "MedlineCitation").find("PMID").text + '">' + '</a>\n' + 'Abstract:' + (
+                                          child.find("MedlineCitation").find("Article").find("Abstract").find(
+                                              "AbstractText").text if child.find("MedlineCitation").find(
+                                              "Article").find("Abstract") else "No abstract available")} for child in
                           pubmedcnt.findall("PubmedArticle")]
         except Exception as e:
             return PubMed.be_output("**ERROR**: " + str(e))
@@ -61,5 +65,5 @@ class PubMed(ComponentBase, ABC):
             return PubMed.be_output("")
 
         df = pd.DataFrame(pubmed_res)
-        if DEBUG: print(df, ":::::::::::::::::::::::::::::::::")
+        logging.debug(f"df: {df}")
         return df

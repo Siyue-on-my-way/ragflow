@@ -5,12 +5,12 @@ Reference:
  - [graphrag](https://github.com/microsoft/graphrag)
 """
 
-import json
 import logging
+import json
 import re
 import traceback
+from typing import Callable
 from dataclasses import dataclass
-from typing import Any, List, Callable
 import networkx as nx
 import pandas as pd
 from graphrag import leiden
@@ -21,15 +21,13 @@ from graphrag.utils import ErrorHandlerFn, perform_variable_replacements, dict_h
 from rag.utils import num_tokens_from_string
 from timeit import default_timer as timer
 
-log = logging.getLogger(__name__)
-
 
 @dataclass
 class CommunityReportsResult:
     """Community reports result class definition."""
 
-    output: List[str]
-    structured_output: List[dict]
+    output: list[str]
+    structured_output: list[dict]
 
 
 class CommunityReportsExtractor:
@@ -55,7 +53,7 @@ class CommunityReportsExtractor:
         self._max_report_length = max_report_length or 1500
 
     def __call__(self, graph: nx.Graph, callback: Callable | None = None):
-        communities: dict[str, dict[str, List]] = leiden.run(graph, {})
+        communities: dict[str, dict[str, list]] = leiden.run(graph, {})
         total = sum([len(comm.items()) for _, comm in communities.items()])
         relations_df = pd.DataFrame([{"source":s, "target": t, **attr} for s, t, attr in graph.edges(data=True)])
         res_str = []
@@ -76,11 +74,13 @@ class CommunityReportsExtractor:
                 text = perform_variable_replacements(self._extraction_prompt, variables=prompt_variables)
                 gen_conf = {"temperature": 0.3}
                 try:
-                    response = self._llm.chat(text, [], gen_conf)
+                    response = self._llm.chat(text, [{"role": "user", "content": "Output:"}], gen_conf)
                     token_count += num_tokens_from_string(text + response)
                     response = re.sub(r"^[^\{]*", "", response)
                     response = re.sub(r"[^\}]*$", "", response)
-                    print(response)
+                    response = re.sub(r"\{\{", "{", response)
+                    response = re.sub(r"\}\}", "}", response)
+                    logging.debug(response)
                     response = json.loads(response)
                     if not dict_has_keys_with_types(response, [
                                 ("title", str),
@@ -92,7 +92,7 @@ class CommunityReportsExtractor:
                     response["weight"] = weight
                     response["entities"] = ents
                 except Exception as e:
-                    print("ERROR: ", traceback.format_exc())
+                    logging.exception("CommunityReportsExtractor got exception")
                     self._on_error(e, traceback.format_exc(), None)
                     continue
 

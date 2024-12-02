@@ -1,18 +1,24 @@
 import Image from '@/components/image';
 import SvgIcon from '@/components/svg-icon';
-import { useSelectFileThumbnails } from '@/hooks/knowledge-hooks';
 import { IReference } from '@/interfaces/database/chat';
 import { IChunk } from '@/interfaces/database/knowledge';
 import { getExtension } from '@/utils/document-util';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import { Button, Flex, Popover, Space } from 'antd';
 import DOMPurify from 'dompurify';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import reactStringReplace from 'react-string-replace';
 import SyntaxHighlighter from 'react-syntax-highlighter';
+import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import { visitParents } from 'unist-util-visit-parents';
+
+import { useFetchDocumentThumbnailsByIds } from '@/hooks/document-hooks';
+import { useTranslation } from 'react-i18next';
+
+import 'katex/dist/katex.min.css'; // `rehype-katex` does not import the CSS for you
 
 import styles from './index.less';
 
@@ -25,12 +31,27 @@ const MarkdownContent = ({
   reference,
   clickDocumentButton,
   content,
+  loading,
 }: {
   content: string;
+  loading: boolean;
   reference: IReference;
   clickDocumentButton?: (documentId: string, chunk: IChunk) => void;
 }) => {
-  const fileThumbnails = useSelectFileThumbnails();
+  const { t } = useTranslation();
+  const { setDocumentIds, data: fileThumbnails } =
+    useFetchDocumentThumbnailsByIds();
+  const contentWithCursor = useMemo(() => {
+    let text = content;
+    if (text === '') {
+      text = t('chat.searching');
+    }
+    return loading ? text?.concat('~~2$$') : text;
+  }, [content, loading, t]);
+
+  useEffect(() => {
+    setDocumentIds(reference?.doc_aggs?.map((x) => x.doc_id) ?? []);
+  }, [reference, setDocumentIds]);
 
   const handleDocumentButtonClick = useCallback(
     (documentId: string, chunk: IChunk, isPdf: boolean) => () => {
@@ -102,7 +123,11 @@ const MarkdownContent = ({
             {documentId && (
               <Flex gap={'small'}>
                 {fileThumbnail ? (
-                  <img src={fileThumbnail} alt="" />
+                  <img
+                    src={fileThumbnail}
+                    alt=""
+                    className={styles.fileThumbnail}
+                  />
                 ) : (
                   <SvgIcon
                     name={`file-icon/${fileExtension}`}
@@ -134,8 +159,8 @@ const MarkdownContent = ({
       let replacedText = reactStringReplace(text, reg, (match, i) => {
         const chunkIndex = getChunkIndex(match);
         return (
-          <Popover content={getPopoverContent(chunkIndex)}>
-            <InfoCircleOutlined key={i} className={styles.referenceIcon} />
+          <Popover content={getPopoverContent(chunkIndex)} key={i}>
+            <InfoCircleOutlined className={styles.referenceIcon} />
           </Popover>
         );
       });
@@ -151,8 +176,8 @@ const MarkdownContent = ({
 
   return (
     <Markdown
-      rehypePlugins={[rehypeWrapReference]}
-      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeWrapReference, rehypeKatex]}
+      remarkPlugins={[remarkGfm, remarkMath]}
       components={
         {
           'custom-typography': ({ children }: { children: string }) =>
@@ -173,7 +198,7 @@ const MarkdownContent = ({
         } as any
       }
     >
-      {content}
+      {contentWithCursor}
     </Markdown>
   );
 };

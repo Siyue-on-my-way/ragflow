@@ -11,28 +11,25 @@
 #  limitations under the License.
 #
 
+import logging
 import os
 import random
 
 import xgboost as xgb
 from io import BytesIO
-import torch
 import re
 import pdfplumber
-import logging
-from PIL import Image, ImageDraw
+from PIL import Image
 import numpy as np
 from timeit import default_timer as timer
 from pypdf import PdfReader as pdf2_read
 
+from api import settings
 from api.utils.file_utils import get_project_base_directory
 from deepdoc.vision import OCR, Recognizer, LayoutRecognizer, TableStructureRecognizer
 from rag.nlp import rag_tokenizer
 from copy import deepcopy
 from huggingface_hub import snapshot_download
-
-logging.getLogger("pdfminer").setLevel(logging.WARNING)
-
 
 class RAGFlowPdfParser:
     def __init__(self):
@@ -44,15 +41,20 @@ class RAGFlowPdfParser:
         self.tbl_det = TableStructureRecognizer()
 
         self.updown_cnt_mdl = xgb.Booster()
-        if torch.cuda.is_available():
-            self.updown_cnt_mdl.set_param({"device": "cuda"})
+        if not settings.LIGHTEN:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    self.updown_cnt_mdl.set_param({"device": "cuda"})
+            except Exception:
+                logging.exception("RAGFlowPdfParser __init__")
         try:
             model_dir = os.path.join(
                 get_project_base_directory(),
                 "rag/res/deepdoc")
             self.updown_cnt_mdl.load_model(os.path.join(
                 model_dir, "updown_concat_xgb.model"))
-        except Exception as e:
+        except Exception:
             model_dir = snapshot_download(
                 repo_id="InfiniFlow/text_concat_xgb_v1.0",
                 local_dir=os.path.join(get_project_base_directory(), "rag/res/deepdoc"),
@@ -106,13 +108,13 @@ class RAGFlowPdfParser:
         h = max(self.__height(up), self.__height(down))
         y_dis = self._y_dis(up, down)
         LEN = 6
-        tks_down = rag_tokenizer.tokenize(down["text"][:LEN]).split(" ")
-        tks_up = rag_tokenizer.tokenize(up["text"][-LEN:]).split(" ")
+        tks_down = rag_tokenizer.tokenize(down["text"][:LEN]).split()
+        tks_up = rag_tokenizer.tokenize(up["text"][-LEN:]).split()
         tks_all = up["text"][-LEN:].strip() \
                   + (" " if re.match(r"[a-zA-Z0-9]+",
                                      up["text"][-1] + down["text"][0]) else "") \
                   + down["text"][:LEN].strip()
-        tks_all = rag_tokenizer.tokenize(tks_all).split(" ")
+        tks_all = rag_tokenizer.tokenize(tks_all).split()
         fea = [
             up.get("R", -1) == down.get("R", -1),
             y_dis / h,
@@ -150,7 +152,7 @@ class RAGFlowPdfParser:
             max(len(up["text"]), len(down["text"])),
             len(tks_all) - len(tks_up) - len(tks_down),
             len(tks_down) - len(tks_up),
-            tks_down[-1] == tks_up[-1],
+            tks_down[-1] == tks_up[-1] if tks_down and tks_up else False,
             max(down["in_row"], up["in_row"]),
             abs(down["in_row"] - up["in_row"]),
             len(tks_down) == 1 and rag_tokenizer.tag(tks_down[0]).find("n") >= 0,
@@ -182,7 +184,7 @@ class RAGFlowPdfParser:
         return True
 
     def _table_transformer_job(self, ZM):
-        logging.info("Table processing...")
+        logging.debug("Table processing...")
         imgs, pos = [], []
         tbcnt = [0]
         MARGIN = 10
@@ -299,7 +301,7 @@ class RAGFlowPdfParser:
                 self.lefted_chars.append(c)
                 continue
             if c["text"] == " " and bxs[ii]["text"]:
-                if re.match(r"[0-9a-zA-Z,.?;:!%%]", bxs[ii]["text"][-1]):
+                if re.match(r"[0-9a-zA-Zа-яА-Я,.?;:!%%]", bxs[ii]["text"][-1]):
                     bxs[ii]["text"] += " "
             else:
                 bxs[ii]["text"] += c["text"]
@@ -420,12 +422,12 @@ class RAGFlowPdfParser:
             detach_feats = [b["x1"] < b_["x0"],
                             b["x0"] > b_["x1"]]
             if (any(feats) and not any(concatting_feats)) or any(detach_feats):
-                print(
+                logging.debug("{} {} {} {}".format(
                     b["text"],
                     b_["text"],
                     any(feats),
                     any(concatting_feats),
-                    any(detach_feats))
+                    ))
                 i += 1
                 continue
             # merge up and down
@@ -486,7 +488,7 @@ class RAGFlowPdfParser:
                         i += 1
                         continue
 
-                    if not down["text"].strip():
+                    if not down["text"].strip() or not up["text"].strip():
                         i += 1
                         continue
 
@@ -563,13 +565,13 @@ class RAGFlowPdfParser:
             if i >= len(self.boxes):
                 break
             prefix = self.boxes[i]["text"].strip()[:3] if not eng else " ".join(
-                self.boxes[i]["text"].strip().split(" ")[:2])
+                self.boxes[i]["text"].strip().split()[:2])
             while not prefix:
                 self.boxes.pop(i)
                 if i >= len(self.boxes):
                     break
                 prefix = self.boxes[i]["text"].strip()[:3] if not eng else " ".join(
-                    self.boxes[i]["text"].strip().split(" ")[:2])
+                    self.boxes[i]["text"].strip().split()[:2])
             self.boxes.pop(i)
             if i >= len(self.boxes) or not prefix:
                 break
@@ -755,7 +757,7 @@ class RAGFlowPdfParser:
                 if ii is not None:
                     b = louts[ii]
                 else:
-                    logging.warn(
+                    logging.warning(
                         f"Missing layout match: {pn + 1},%s" %
                         (bxs[0].get(
                             "layoutno", "")))
@@ -914,7 +916,7 @@ class RAGFlowPdfParser:
                     dfs(boxes[0], 0)
                 else:
                     logging.debug("WASTE: " + boxes[0]["text"])
-            except Exception as e:
+            except Exception:
                 pass
             boxes.pop(0)
             mw = np.mean(widths)
@@ -933,8 +935,8 @@ class RAGFlowPdfParser:
             pdf = pdfplumber.open(
                 fnm) if not binary else pdfplumber.open(BytesIO(binary))
             return len(pdf.pages)
-        except Exception as e:
-            logging.error(str(e))
+        except Exception:
+            logging.exception("total_page_number")
 
     def __images__(self, fnm, zoomin=3, page_from=0,
                    page_to=299, callback=None):
@@ -952,11 +954,13 @@ class RAGFlowPdfParser:
                 fnm, str) else pdfplumber.open(BytesIO(fnm))
             self.page_images = [p.to_image(resolution=72 * zoomin).annotated for i, p in
                                 enumerate(self.pdf.pages[page_from:page_to])]
+            self.page_images_x2 = [p.to_image(resolution=72 * zoomin * 2).annotated for i, p in
+                                enumerate(self.pdf.pages[page_from:page_to])]
             self.page_chars = [[{**c, 'top': c['top'], 'bottom': c['bottom']} for c in page.dedupe_chars().chars if self._has_color(c)] for page in
                                self.pdf.pages[page_from:page_to]]
             self.total_page = len(self.pdf.pages)
-        except Exception as e:
-            logging.error(str(e))
+        except Exception:
+            logging.exception("RAGFlowPdfParser __images__")
 
         self.outlines = []
         try:
@@ -974,9 +978,9 @@ class RAGFlowPdfParser:
         except Exception as e:
             logging.warning(f"Outlines exception: {e}")
         if not self.outlines:
-            logging.warning(f"Miss outlines")
+            logging.warning("Miss outlines")
 
-        logging.info("Images converted.")
+        logging.debug("Images converted.")
         self.is_english = [re.search(r"[a-zA-Z0-9,/¸;:'\[\]\(\)!@#$%^&*\"?<>._-]{30,}", "".join(
             random.choices([c["text"] for c in self.page_chars[i]], k=min(100, len(self.page_chars[i]))))) for i in
                            range(len(self.page_chars))]
@@ -987,7 +991,7 @@ class RAGFlowPdfParser:
             self.is_english = False
 
         st = timer()
-        for i, img in enumerate(self.page_images):
+        for i, img in enumerate(self.page_images_x2):
             chars = self.page_chars[i] if not self.is_english else []
             self.mean_height.append(
                 np.median(sorted([c["height"] for c in chars])) if chars else 0
@@ -995,7 +999,7 @@ class RAGFlowPdfParser:
             self.mean_width.append(
                 np.median(sorted([c["width"] for c in chars])) if chars else 8
             )
-            self.page_cum_height.append(img.size[1] / zoomin)
+            self.page_cum_height.append(img.size[1] / zoomin/2)
             j = 0
             while j + 1 < len(chars):
                 if chars[j]["text"] and chars[j + 1]["text"] \
@@ -1005,7 +1009,7 @@ class RAGFlowPdfParser:
                     chars[j]["text"] += " "
                 j += 1
 
-            self.__ocr(i + 1, img, chars, zoomin)
+            self.__ocr(i + 1, img, chars, zoomin*2)
             if callback and i % 6 == 5:
                 callback(prog=(i + 1) * 0.6 / len(self.page_images), msg="")
         # print("OCR:", timer()-st)
@@ -1016,7 +1020,7 @@ class RAGFlowPdfParser:
             self.is_english = re.search(r"[\na-zA-Z0-9,/¸;:'\[\]\(\)!@#$%^&*\"?<>._-]{30,}",
                                         "".join([b["text"] for b in random.choices(bxes, k=min(30, len(bxes)))]))
 
-        logging.info("Is it English:", self.is_english)
+        logging.debug("Is it English:", self.is_english)
 
         self.page_cum_height = np.cumsum(self.page_cum_height)
         assert len(self.page_cum_height) == len(self.page_images) + 1
@@ -1155,10 +1159,10 @@ class PlainParser(object):
                     dfs(a, depth + 1)
 
             dfs(outlines, 0)
-        except Exception as e:
-            logging.warning(f"Outlines exception: {e}")
+        except Exception:
+            logging.exception("Outlines exception")
         if not self.outlines:
-            logging.warning(f"Miss outlines")
+            logging.warning("Miss outlines")
 
         return [(l, "") for l in lines], []
 

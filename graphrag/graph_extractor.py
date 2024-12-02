@@ -9,8 +9,8 @@ import logging
 import numbers
 import re
 import traceback
+from typing import Any, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping, Callable
 import tiktoken
 from graphrag.graph_prompt import GRAPH_EXTRACTION_PROMPT, CONTINUE_PROMPT, LOOP_PROMPT
 from graphrag.utils import ErrorHandlerFn, perform_variable_replacements, clean_str
@@ -163,7 +163,8 @@ class GraphExtractor:
         token_count = 0
         text = perform_variable_replacements(self._extraction_prompt, variables=variables)
         gen_conf = {"temperature": 0.3}
-        response = self._llm.chat(text, [], gen_conf)
+        response = self._llm.chat(text, [{"role": "user", "content": "Output:"}], gen_conf)
+        if response.find("**ERROR**") >= 0: raise Exception(response)
         token_count = num_tokens_from_string(text + response)
 
         results = response or ""

@@ -13,13 +13,16 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+import logging
 import json
+import traceback
 from functools import partial
 from flask import request, Response
 from flask_login import login_required, current_user
 from api.db.services.canvas_service import CanvasTemplateService, UserCanvasService
+from api.settings import RetCode
 from api.utils import get_uuid
-from api.utils.api_utils import get_json_result, server_error_response, validate_request
+from api.utils.api_utils import get_json_result, server_error_response, validate_request, get_data_error_result
 from agent.canvas import Canvas
 from peewee import MySQLDatabase, PostgresqlDatabase
 
@@ -43,6 +46,10 @@ def canvas_list():
 @login_required
 def rm():
     for i in request.json["canvas_ids"]:
+        if not UserCanvasService.query(user_id=current_user.id,id=i):
+            return get_json_result(
+                data=False, message='Only owner of canvas authorized for this operation.',
+                code=RetCode.OPERATING_ERROR)
         UserCanvasService.delete_by_id(i)
     return get_json_result(data=True)
 
@@ -61,10 +68,13 @@ def save():
             return server_error_response(ValueError("Duplicated title."))
         req["id"] = get_uuid()
         if not UserCanvasService.save(**req):
-            return server_error_response("Fail to save canvas.")
+            return get_data_error_result(message="Fail to save canvas.")
     else:
+        if not UserCanvasService.query(user_id=current_user.id, id=req["id"]):
+            return get_json_result(
+                data=False, message='Only owner of canvas authorized for this operation.',
+                code=RetCode.OPERATING_ERROR)
         UserCanvasService.update_by_id(req["id"], req)
-
     return get_json_result(data=req)
 
 
@@ -73,7 +83,7 @@ def save():
 def get(canvas_id):
     e, c = UserCanvasService.get_by_id(canvas_id)
     if not e:
-        return server_error_response("canvas not found.")
+        return get_data_error_result(message="canvas not found.")
     return get_json_result(data=c.to_dict())
 
 
@@ -85,47 +95,55 @@ def run():
     stream = req.get("stream", True)
     e, cvs = UserCanvasService.get_by_id(req["id"])
     if not e:
-        return server_error_response("canvas not found.")
+        return get_data_error_result(message="canvas not found.")
+    if not UserCanvasService.query(user_id=current_user.id, id=req["id"]):
+        return get_json_result(
+            data=False, message='Only owner of canvas authorized for this operation.',
+            code=RetCode.OPERATING_ERROR)
 
     if not isinstance(cvs.dsl, str):
         cvs.dsl = json.dumps(cvs.dsl, ensure_ascii=False)
 
     final_ans = {"reference": [], "content": ""}
-    message_id = get_uuid()
+    message_id = req.get("message_id", get_uuid())
     try:
         canvas = Canvas(cvs.dsl, current_user.id)
         if "message" in req:
             canvas.messages.append({"role": "user", "content": req["message"], "id": message_id})
             canvas.add_user_input(req["message"])
-        answer = canvas.run(stream=stream)
-        print(canvas)
     except Exception as e:
         return server_error_response(e)
 
-    assert answer is not None, "Nothing. Is it over?"
-
     if stream:
-        assert isinstance(answer, partial), "Nothing. Is it over?"
-
         def sse():
             nonlocal answer, cvs
             try:
-                for ans in answer():
+                for ans in canvas.run(stream=True):
+                    if ans.get("running_status"):
+                        yield "data:" + json.dumps({"code": 0, "message": "",
+                                                    "data": {"answer": ans["content"],
+                                                             "running_status": True}},
+                                                   ensure_ascii=False) + "\n\n"
+                        continue
                     for k in ans.keys():
                         final_ans[k] = ans[k]
                     ans = {"answer": ans["content"], "reference": ans.get("reference", [])}
-                    yield "data:" + json.dumps({"retcode": 0, "retmsg": "", "data": ans}, ensure_ascii=False) + "\n\n"
+                    yield "data:" + json.dumps({"code": 0, "message": "", "data": ans}, ensure_ascii=False) + "\n\n"
 
                 canvas.messages.append({"role": "assistant", "content": final_ans["content"], "id": message_id})
+                canvas.history.append(("assistant", final_ans["content"]))
                 if final_ans.get("reference"):
                     canvas.reference.append(final_ans["reference"])
                 cvs.dsl = json.loads(str(canvas))
                 UserCanvasService.update_by_id(req["id"], cvs.to_dict())
             except Exception as e:
-                yield "data:" + json.dumps({"retcode": 500, "retmsg": str(e),
+                cvs.dsl = json.loads(str(canvas))
+                UserCanvasService.update_by_id(req["id"], cvs.to_dict())
+                traceback.print_exc()
+                yield "data:" + json.dumps({"code": 500, "message": str(e),
                                             "data": {"answer": "**ERROR**: " + str(e), "reference": []}},
                                            ensure_ascii=False) + "\n\n"
-            yield "data:" + json.dumps({"retcode": 0, "retmsg": "", "data": True}, ensure_ascii=False) + "\n\n"
+            yield "data:" + json.dumps({"code": 0, "message": "", "data": True}, ensure_ascii=False) + "\n\n"
 
         resp = Response(sse(), mimetype="text/event-stream")
         resp.headers.add_header("Cache-control", "no-cache")
@@ -134,13 +152,15 @@ def run():
         resp.headers.add_header("Content-Type", "text/event-stream; charset=utf-8")
         return resp
 
-    final_ans["content"] = "\n".join(answer["content"]) if "content" in answer else ""
-    canvas.messages.append({"role": "assistant", "content": final_ans["content"], "id": message_id})
-    if final_ans.get("reference"):
-        canvas.reference.append(final_ans["reference"])
-    cvs.dsl = json.loads(str(canvas))
-    UserCanvasService.update_by_id(req["id"], cvs.to_dict())
-    return get_json_result(data={"answer": final_ans["content"], "reference": final_ans.get("reference", [])})
+    for answer in canvas.run(stream=False):
+        if answer.get("running_status"): continue
+        final_ans["content"] = "\n".join(answer["content"]) if "content" in answer else ""
+        canvas.messages.append({"role": "assistant", "content": final_ans["content"], "id": message_id})
+        if final_ans.get("reference"):
+            canvas.reference.append(final_ans["reference"])
+        cvs.dsl = json.loads(str(canvas))
+        UserCanvasService.update_by_id(req["id"], cvs.to_dict())
+        return get_json_result(data={"answer": final_ans["content"], "reference": final_ans.get("reference", [])})
 
 
 @manager.route('/reset', methods=['POST'])
@@ -151,7 +171,11 @@ def reset():
     try:
         e, user_canvas = UserCanvasService.get_by_id(req["id"])
         if not e:
-            return server_error_response("canvas not found.")
+            return get_data_error_result(message="canvas not found.")
+        if not UserCanvasService.query(user_id=current_user.id, id=req["id"]):
+            return get_json_result(
+                data=False, message='Only owner of canvas authorized for this operation.',
+                code=RetCode.OPERATING_ERROR)
 
         canvas = Canvas(json.dumps(user_canvas.dsl), current_user.id)
         canvas.reset()
