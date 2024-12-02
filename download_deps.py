@@ -83,6 +83,7 @@ if __name__ == "__main__":
     try:
         print("Validating punkt tokenizer...")
         nltk.download("punkt", download_dir=nltk_data_dir)
+        print("Download punkt End !")
         from nltk.tokenize import PunktSentenceTokenizer
         tokenizer = PunktSentenceTokenizer()
         print("Punkt tokenizer is ready to use!")
