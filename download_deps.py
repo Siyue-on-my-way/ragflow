@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+######################################## 下载启动需要的nltk数据和大模型文件 ########################################
 from huggingface_hub import snapshot_download
 import nltk
 import os
