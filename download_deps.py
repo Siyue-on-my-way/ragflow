@@ -71,7 +71,9 @@ if __name__ == "__main__":
     # 手动下载 punkt 数据
     ensure_dir_exists(nltk_data_dir)
     if not os.path.exists(punkt_extract_path):
+        print("Downloading punkt zip ...")
         punkt_zip_file = download_file(PUNKT_URL, nltk_data_dir)
+        print(f"extract punkt zipfile to {punkt_extract_path}")
         extract_zip(punkt_zip_file, punkt_extract_path)
     else:
         print(f"Punkt data already exists at {punkt_extract_path}, skipping extraction.")
@@ -83,7 +85,6 @@ if __name__ == "__main__":
     try:
         print("Validating punkt tokenizer...")
         nltk.download("punkt", download_dir=nltk_data_dir)
-        print("Download punkt End !")
         from nltk.tokenize import PunktSentenceTokenizer
         tokenizer = PunktSentenceTokenizer()
         print("Punkt tokenizer is ready to use!")
